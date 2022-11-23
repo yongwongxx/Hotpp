@@ -14,14 +14,15 @@ R = torch.tensor([
 
 class TensorAggregateLayer(nn.Module):
     def __init__(self, 
-                 radius_fn   : RadiusFunction,
-                 max_out_way : int=2, 
-                 max_r_way   : int=2,
+                 radius_fn      : RadiusFunction,
+                 radius_fn_para : Dict,
+                 max_out_way    : int=2, 
+                 max_r_way      : int=2,
                  ) -> None:
         super().__init__()
         self.max_out_way = max_out_way
         self.max_r_way = max_r_way
-        self.radius_fn_list = nn.ModuleList([radius_fn for _ in range(max_r_way + 1)])
+        self.radius_fn_list = nn.ModuleList([radius_fn(**radius_fn_para) for _ in range(max_r_way + 1)])
 
     def forward(self, 
                 input_tensors : Dict[int, torch.Tensor],
@@ -207,15 +208,17 @@ class NonLinearLayer(nn.Module):
 
 class SOnEquivalentLayer(nn.Module):
     def __init__(self,
-                 activate_fn : Callable,
-                 radius_fn   : RadiusFunction,
-                 max_r_way   : int,
-                 max_out_way : int,
-                 input_dim   : int,
-                 output_dim  : int,
+                 activate_fn    : Callable,
+                 radius_fn      : RadiusFunction,
+                 max_r_way      : int,
+                 max_out_way    : int,
+                 input_dim      : int,
+                 output_dim     : int,
+                 radius_fn_para : Dict={},
                  ) -> None:
         super().__init__()
         self.tensor_aggregate = TensorAggregateLayer(radius_fn=radius_fn,
+                                                     radius_fn_para=radius_fn_para,
                                                      max_out_way=max_out_way, 
                                                      max_r_way=max_r_way)
         # input for SelfInteractionLayer and NonLinearLayer is the output of TensorAggregateLayer

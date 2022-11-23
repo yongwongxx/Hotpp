@@ -28,9 +28,9 @@ class ChebyshevPoly(RadiusFunction):
                 distances: torch.Tensor,
                 ) -> torch.Tensor:
         out = torch.zeros_like(distances)
-        x = (distances - self.r_min) / (self.r_max - self.r_min)
+        x = torch.clamp((distances - self.r_min) / (self.r_max - self.r_min),
+                        min=0., max=1.)
         for n in range(self.n_max):
-            out += torch.cos(n * torch.arccos(x))
+            out += torch.cos(n * torch.arccos(x)) * self.weights[n]
         out *=  (1 - x) ** 2
         return out
-

@@ -4,6 +4,8 @@ from typing import Callable, List, Dict, Optional
 from tensornet.layer.equivalent import SOnEquivalentLayer, SelfInteractionLayer
 from tensornet.layer.embedding import EmbeddingLayer
 from tensornet.layer.radius import RadiusFunction
+from tensornet.layer.readout import ReadoutLayer
+from tensornet.utils import expand_to
 
 
 def expand_para(para: int or List, n: int):
@@ -15,6 +17,43 @@ def expand_para(para: int or List, n: int):
     return para    
 
 
+class ANI(nn.Module):
+    def __init__(self,
+                 embedding_layer : EmbeddingLayer,
+                 n_layers        : int,
+                 output_dim      : int or List,
+                 activate_fn     : Callable,
+                 ) -> None:
+        super().__init__()
+        self.embedding_layer = embedding_layer
+        hidden_nodes = [embedding_layer.n_channel] + expand_para(output_dim, n_layers)
+        self.linear_layers = nn.ModuleList([
+            nn.Linear(hidden_nodes[i], hidden_nodes[i + 1]) for i in range(n_layers)])
+        self.readout_layer = nn.Linear(hidden_nodes[-1], 1)
+        self.activate_fn = activate_fn
+
+    def forward(self, 
+                coordinate    : torch.Tensor,
+                atomic_number : torch.Tensor,
+                neighbor      : torch.Tensor,
+                mask          : torch.Tensor,
+                cell          : Optional[torch.Tensor]=None,
+                offset        : Optional[torch.Tensor]=None,
+                ) -> torch.Tensor:
+        output_tensors = self.embedding_layer(coordinate=coordinate,
+                                              atomic_number=atomic_number,
+                                              neighbor=neighbor,
+                                              mask=mask,
+                                              cell=cell,
+                                              offset=offset)
+        for layer in self.linear_layers:
+            output_tensors = self.activate_fn(layer(output_tensors))
+        output_tensors = self.readout_layer(output_tensors).squeeze(2)
+        symbol_mask = atomic_number < 0.5
+        output_tensors.masked_fill(mask=symbol_mask, value=torch.tensor(0.))
+        return output_tensors
+    
+    
 class TensorMessagePassingNet(nn.Module):
 
     def __init__(self,
@@ -26,6 +65,7 @@ class TensorMessagePassingNet(nn.Module):
                  output_dim      : int or List,
                  activate_fn     : Callable,
                  target_way      : List[int]=[0],
+                 radius_fn_para  : Dict={},
                  ):
         super().__init__()
         self.embedding_layer = embedding_layer
@@ -35,14 +75,13 @@ class TensorMessagePassingNet(nn.Module):
         self.son_equivalent_layers = nn.ModuleList(
             [SOnEquivalentLayer(activate_fn=activate_fn,
                                 radius_fn=radius_fn,
+                                radius_fn_para=radius_fn_para,
                                 max_r_way=max_r_way[i],
                                 max_out_way=max_out_way[i],
                                 input_dim=hidden_nodes[i],
                                 output_dim=hidden_nodes[i + 1]) for i in range(n_layers)])
-        self.readout_layer = SelfInteractionLayer(input_dim=hidden_nodes[-1],
-                                                  max_in_way=max_out_way[-1],
-                                                  output_dim=1)
-        self.target_way = target_way
+        self.readout_layer = ReadoutLayer(n_dim=hidden_nodes[-1],
+                                          target_way=target_way)
 
     def forward(self,
                 coordinate    : torch.Tensor,
@@ -64,7 +103,8 @@ class TensorMessagePassingNet(nn.Module):
                                    coordinate=coordinate, 
                                    neighbor=neighbor,
                                    mask=mask,
-                                   cell=cell)
-        output_tensors = self.readout_layer(output_tensors)
-        result = {way: output_tensors[way] for way in self.target_way}
-        return result
+                                   cell=cell,
+                                   offset=offset)
+        output_tensors = self.readout_layer(output_tensors,
+                                            atomic_number=atomic_number)
+        return output_tensors

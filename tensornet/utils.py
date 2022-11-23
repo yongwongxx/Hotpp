@@ -88,6 +88,33 @@ def find_distances(coordinate : torch.Tensor,
         offset = offset.view(n_batch, n_atoms, n_neigh, n_dim)
         rj += offset
     distances = rj - ri
-    mask = torch.unsqueeze(neighbor < 0, dim=-1)
+    mask = torch.unsqueeze(mask < 0.5, dim=-1)
     distances = distances.masked_fill(mask=mask, value=torch.tensor(0.))
     return distances
+
+
+def get_elements(frames):
+    elements = set()
+    for atoms in frames:
+        elements.update(set(atoms.get_atomic_numbers()))
+    return list(elements)
+
+
+def get_mindist(frames):
+    min_dist = 100
+    for atoms in frames:
+        distances = atoms.get_all_distances(mic=True) + np.eye(len(atoms)) * 100
+        min_dist = min(np.min(distances), min_dist)
+    return min_dist
+
+
+# TODO: incremental Welford algorithm?
+# https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+def translate_energy(frames):
+    energy_peratom = []
+    for atoms in frames:
+        energy_peratom.append(atoms.info['energy'] / len(atoms))
+    mean = np.mean(energy_peratom)
+    for atoms in frames:
+        atoms.info['energy'] -= mean * len(atoms)
+    return frames
