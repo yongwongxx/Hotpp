@@ -39,17 +39,17 @@ class TensorAggregateLayer(nn.Module):
         #   .....
         # coordinate: [n_batch, n_atoms, n_dim]
         output_tensors = {way: None for way in range(self.max_out_way + 1)}
+        rij = find_distances(coordinate=coordinate,
+                                 neighbor=neighbor,
+                                 mask=mask,
+                                 cell=cell,
+                                 offset=offset)
+        dij = torch.linalg.norm(rij, dim=-1)
 
         for out_way, in_way, r_way in way_combination(range(self.max_out_way + 1), 
                                                       input_tensors.keys(), 
                                                       range(self.max_r_way + 1)):
             coupling_way = (in_way + r_way - out_way) // 2
-            rij = find_distances(coordinate=coordinate,
-                                 neighbor=neighbor,
-                                 mask=mask,
-                                 cell=cell,
-                                 offset=offset)
-            dij = torch.linalg.norm(rij, dim=-1)
             fn = self.radius_fn_list[r_way](dij)    # [n_batch, n_atoms, n_neigh]
             filter_tensor = multi_outer_product(rij, r_way) * expand_to(fn, n_dim=r_way + 3)
 

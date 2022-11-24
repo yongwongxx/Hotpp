@@ -42,7 +42,7 @@ def get_dict(atoms, cutoff):
         'scaling': torch.eye(3).float(),
     }
 
-    for key in ['energy', 'forces', 'stress']:
+    for key in ['energy', 'forces']:#, 'stress']:
         if key in atoms.info:
             d[key] = torch.tensor(atoms.info[key]).float()
     return d

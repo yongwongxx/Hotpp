@@ -84,8 +84,8 @@ def find_distances(coordinate : torch.Tensor,
     rj = coordinate[idx_m, neighbor]
 
     if cell is not None:
-        offset = offset.view(n_batch, -1, n_dim).bmm(cell)
-        offset = offset.view(n_batch, n_atoms, n_neigh, n_dim)
+        # offset = offset.view(n_batch, -1, n_dim).bmm(cell)
+        # offset = offset.view(n_batch, n_atoms, n_neigh, n_dim)
         rj += offset
     distances = rj - ri
     mask = torch.unsqueeze(mask < 0.5, dim=-1)

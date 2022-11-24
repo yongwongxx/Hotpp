@@ -126,5 +126,7 @@ class BehlerG1(EmbeddingLayer):
         f = torch.exp(x) * cut
         # f: (n_batch, n_atoms, n_neigh, n_channel)
         # z_ij: (n_batch, n_atoms, n_neigh, n_embedded)
-        f = rearrange(torch.einsum('b i j c, b i j e -> b i c e', f, z_ij), 'b i c e -> b i (c e)')
+        n_atoms = coordinate.shape[1]
+        f = torch.sum(f.unsqueeze(-1) * z_ij.unsqueeze(-2), dim=2).view(n_batch, n_atoms, -1)
+        # f = rearrange(torch.einsum('b i j c, b i j e -> b i c e', f, z_ij), 'b i c e -> b i (c e)')
         return f

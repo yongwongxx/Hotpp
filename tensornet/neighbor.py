@@ -20,6 +20,6 @@ def get_environment(atoms, cutoff):
         offsets[i].extend([[0., 0., 0.]] * (max_nbh - nbh[i]))
         mask[i] = [True] * nbh[i] + [False] * (max_nbh - nbh[i])
     neighborhood_idx = np.array(neighborhood_idx, dtype=np.float32)
-    offsets = np.array(offsets, dtype=np.float32)
+    offsets = np.array(offsets, dtype=np.float32) @ atoms.get_cell()
     mask = np.array(mask, dtype=bool)
     return neighborhood_idx, offsets, mask
