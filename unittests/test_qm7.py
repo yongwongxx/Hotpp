@@ -6,7 +6,7 @@ from einops import repeat
 from tensornet.layer.embedding import OneHot, BehlerG1
 from tensornet.layer.cutoff import SmoothCosineCutoff
 from tensornet.layer.equivalent import SOnEquivalentLayer, TensorAggregateLayer, SelfInteractionLayer, NonLinearLayer
-from tensornet.layer.radius import ChebyshevPoly
+from tensornet.layer.radial import ChebyshevPoly
 from tensornet.models import TensorMessagePassingNet
 from tensornet.utils import setup_seed, multi_outer_product
 from tensornet.data import convert_frames
@@ -37,7 +37,7 @@ class TestMolecule(unittest.TestCase):
     def test_behler(self):
         cut_fn = SmoothCosineCutoff(cutoff=self.cutoff)
         atomic_fn = OneHot([0, 1, 6, 7, 8, 16])
-        layer = BehlerG1(n_radius=10,
+        layer = BehlerG1(n_radial=10,
                         cut_fn=cut_fn, 
                         atomic_fn=atomic_fn,)
         emb = layer(self.batch_data).detach().numpy()
@@ -57,10 +57,11 @@ class TestMolecule(unittest.TestCase):
     def test_tensor_aggregate(self):
         input_tensors = {}
         input_tensors[1] = torch.unsqueeze(self.batch_data['coordinate'], 2)
-        radius_fn = ChebyshevPoly
-        radius_fn_para = {'r_min': self.r_min, 'r_max': self.cutoff}
-        layer = TensorAggregateLayer(radius_fn=radius_fn,
-                                     radius_fn_para=radius_fn_para,
+        radial_fn = ChebyshevPoly(r_min=self.r_min, r_max=self.cutoff)
+        cut_fn = SmoothCosineCutoff(cutoff=self.cutoff)
+        layer = TensorAggregateLayer(radial_fn=radial_fn,
+                                     cutoff_fn=cut_fn,
+                                     n_channel=1,
                                      max_out_way=2,
                                      max_r_way=2)
         output_tensors = layer(input_tensors, 
@@ -97,11 +98,11 @@ class TestMolecule(unittest.TestCase):
         input_tensors[0] = torch.unsqueeze(self.batch_data['atomic_number'], 2).float()
         input_tensors[1] = torch.unsqueeze(self.batch_data['coordinate'], 2)
         input_tensors[2] = multi_outer_product(input_tensors[1], 2)
-        radius_fn = ChebyshevPoly
-        radius_fn_para = {'r_min': self.r_min, 'r_max': self.cutoff}
+        radial_fn = ChebyshevPoly(r_min=self.r_min, r_max=self.cutoff)
+        cut_fn = SmoothCosineCutoff(cutoff=self.cutoff)
         layer = SOnEquivalentLayer(activate_fn=torch.sigmoid,
-                                   radius_fn=radius_fn,
-                                   radius_fn_para=radius_fn_para,
+                                   radial_fn=radial_fn,
+                                   cutoff_fn=cut_fn,
                                    max_r_way=2,
                                    max_out_way=2,
                                    input_dim=1,
@@ -113,25 +114,25 @@ class TestMolecule(unittest.TestCase):
     def test_multi_son_equivalent(self):
         input_tensors = {}
         input_tensors[1] = torch.unsqueeze(self.batch_data['coordinate'], 2)
-        radius_fn = ChebyshevPoly
-        radius_fn_para = {'r_min': self.r_min, 'r_max': self.cutoff}
+        radial_fn = ChebyshevPoly(r_min=self.r_min, r_max=self.cutoff)
+        cut_fn = SmoothCosineCutoff(cutoff=self.cutoff)
         layer1 = SOnEquivalentLayer(activate_fn=torch.sigmoid,
-                                    radius_fn=radius_fn,
-                                    radius_fn_para=radius_fn_para,
+                                    radial_fn=radial_fn,
+                                    cutoff_fn=cut_fn,
                                     max_r_way=2,
                                     max_out_way=2,
                                     input_dim=1,
                                     output_dim=10)
         layer2 = SOnEquivalentLayer(activate_fn=torch.sigmoid,
-                                    radius_fn=radius_fn,
-                                    radius_fn_para=radius_fn_para,
+                                    radial_fn=radial_fn,
+                                    cutoff_fn=cut_fn,
                                     max_r_way=2,
                                     max_out_way=2,
                                     input_dim=10,
                                     output_dim=10)
         layer3 = SOnEquivalentLayer(activate_fn=torch.sigmoid,
-                                    radius_fn=radius_fn,
-                                    radius_fn_para=radius_fn_para,
+                                    radial_fn=radial_fn,
+                                    cutoff_fn=cut_fn,
                                     max_r_way=2,
                                     max_out_way=2,
                                     input_dim=10,
@@ -148,14 +149,13 @@ class TestMolecule(unittest.TestCase):
     def test_tensor_passing_net(self):
         cut_fn = SmoothCosineCutoff(cutoff=self.cutoff)
         atomic_fn = OneHot([0, 1, 6, 7, 8, 16])
-        emb = BehlerG1(n_radius=10,
+        emb = BehlerG1(n_radial=10,
                        cut_fn=cut_fn, 
                        atomic_fn=atomic_fn,)
-        radius_fn = ChebyshevPoly
-        radius_fn_para = {'r_min': self.r_min, 'r_max': self.cutoff}
+        radial_fn = ChebyshevPoly(r_min=self.r_min, r_max=self.cutoff)
         model = TensorMessagePassingNet(embedding_layer=emb,
-                                        radius_fn=radius_fn,
-                                        radius_fn_para=radius_fn_para,
+                                        radial_fn=radial_fn,
+                                        cutoff_fn=cut_fn,
                                         n_layers=3,
                                         max_r_way=2,
                                         max_out_way=2,
@@ -170,14 +170,13 @@ class TestMolecule(unittest.TestCase):
     def test_tensor_passing_net_grad(self):
         cut_fn = SmoothCosineCutoff(cutoff=self.cutoff)
         atomic_fn = OneHot([0, 1, 6, 7, 8, 16])
-        emb = BehlerG1(n_radius=10,
+        emb = BehlerG1(n_radial=10,
                        cut_fn=cut_fn, 
                        atomic_fn=atomic_fn,)
-        radius_fn = ChebyshevPoly
-        radius_fn_para = {'r_min': self.r_min, 'r_max': self.cutoff}
+        radial_fn = ChebyshevPoly(r_min=self.r_min, r_max=self.cutoff)
         model = TensorMessagePassingNet(embedding_layer=emb,
-                                        radius_fn=radius_fn,
-                                        radius_fn_para=radius_fn_para,
+                                        radial_fn=radial_fn,
+                                        cutoff_fn=cut_fn,
                                         n_layers=3,
                                         max_r_way=2,
                                         max_out_way=2,

@@ -73,7 +73,7 @@ class AtomicNumber(nn.Module):
 
 class BehlerG1(EmbeddingLayer):
     def __init__(self, 
-                 n_radius      : int, 
+                 n_radial      : int, 
                  cut_fn        : CutoffLayer, 
                  atomic_fn     : EmbeddingLayer,
                  etas          : Optional[List[float]]=None, 
@@ -86,10 +86,10 @@ class BehlerG1(EmbeddingLayer):
 
         if rss is None or etas is None:
             cutoff = cut_fn.cutoff.numpy()
-            rss = torch.linspace(0.3, cutoff - 0.3, n_radius)
+            rss = torch.linspace(0.3, cutoff - 0.3, n_radial)
             etas = 0.5 * torch.ones_like(rss) / (rss[1] - rss[0]) ** 2
 
-        assert (len(etas) == n_radius) and (len(rss) == n_radius), "Lengths of 'etas' or 'rss' error"
+        assert (len(etas) == n_radial) and (len(rss) == n_radial), "Lengths of 'etas' or 'rss' error"
 
         if trainable:
             self.etas = nn.Parameter(etas)
@@ -99,7 +99,7 @@ class BehlerG1(EmbeddingLayer):
             self.register_buffer("etas", etas)
             self.register_buffer("rss", rss)
         
-        self.n_channel = n_radius * self.atomic_embedding.n_channel
+        self.n_channel = n_radial * self.atomic_embedding.n_channel
 
     def forward(self,
                 batch_data  : Dict[str, torch.Tensor],

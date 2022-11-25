@@ -2,118 +2,98 @@ import torch
 from torch import nn
 from typing import Dict, Callable, Optional, List
 from tensornet.utils import way_combination, expand_to, multi_outer_product, find_distances
-from tensornet.layer.radius import RadiusFunction, ChebyshevPoly
+from tensornet.layer.radial import RadialLayer, ChebyshevPoly
+from tensornet.layer.cutoff import CutoffLayer
+import opt_einsum as oe
 
-##############  debug  #################
-import numpy as np
-R = torch.tensor([
-    [-0.85771824,  0.45413047, -0.24100817],
-    [-0.1945646,  -0.720634,   -0.66545567],
-    [-0.47588238, -0.52388181,  0.70645864]])
-#########################################
+
+# input_tensors be like:
+#   0: [n_batch, n_atoms, n_channel]
+#   1: [n_batch, n_atoms, n_channel, n_dim]
+#   2: [n_batch, n_atoms, n_channel, n_dim, n_dim]
+#   .....
+# coordinate: [n_batch, n_atoms, n_dim]
+
 
 class TensorAggregateLayer(nn.Module):
     def __init__(self, 
-                 radius_fn      : RadiusFunction,
-                 radius_fn_para : Dict,
+                 radial_fn      : RadialLayer,
+                 cutoff_fn      : CutoffLayer,
+                 n_channel      : int,
                  max_out_way    : int=2, 
                  max_r_way      : int=2,
                  ) -> None:
         super().__init__()
         self.max_out_way = max_out_way
         self.max_r_way = max_r_way
-        self.radius_fn_list = nn.ModuleList([radius_fn(**radius_fn_para) for _ in range(max_r_way + 1)])
+        self.radial_fn = radial_fn
+        self.cutoff_fn = cutoff_fn
+        self.rbf_mixing_list = nn.ModuleList([
+            nn.Linear(radial_fn.n_max, n_channel, bias=False) for i in range(max_r_way + 1)])
 
     def forward(self, 
                 input_tensors : Dict[int, torch.Tensor],
                 batch_data    : Dict[str, torch.Tensor],
-                # coordinate    : torch.Tensor,                   
-                # neighbor      : torch.Tensor,
-                # mask          : torch.Tensor,
-                # cell          : Optional[torch.Tensor]=None,
-                # offset        : Optional[torch.Tensor]=None,
                 ) -> Dict[int, torch.Tensor]:
-        # input_tensors:
-        #   0: [n_batch, n_atoms, n_channel]
-        #   1: [n_batch, n_atoms, n_channel, n_dim]
-        #   2: [n_batch, n_atoms, n_channel, n_dim, n_dim]
-        #   .....
-        # coordinate: [n_batch, n_atoms, n_dim]
         output_tensors = {way: None for way in range(self.max_out_way + 1)}
+        neighbor = batch_data['neighbor']
+        n_batch = neighbor.shape[0]
         find_distances(batch_data)
         rij = batch_data['rij']
         dij = batch_data['dij']
-        fn_dict = {}
+        rbf_ij = self.radial_fn(dij)               # [n_batch, n_atoms, n_neigh, n_rbf]
+        cut_ij = self.cutoff_fn(dij)               # [n_batch, n_atoms, n_neigh]
+
+        filter_tensor_dict = {}
         for out_way, in_way, r_way in way_combination(range(self.max_out_way + 1), 
                                                       input_tensors.keys(), 
                                                       range(self.max_r_way + 1)):
+            if r_way not in filter_tensor_dict:
+                fn = self.rbf_mixing_list[r_way](rbf_ij)       # [n_batch, n_atoms, n_neigh, n_channel]
+                fn = fn * cut_ij.unsqueeze(-1)                 # [n_batch, n_atoms, n_neigh, n_channel]
+                rij_tensor = multi_outer_product(rij, r_way)   # [n_batch, n_atoms, n_neigh, n_dim, n_dim, ...]
+                filter_tensor = rij_tensor.unsqueeze(3) * expand_to(fn, n_dim=r_way + 4)
+                filter_tensor_dict[r_way] = filter_tensor      # [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]
+            filter_tensor = filter_tensor_dict[r_way]          # [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]
+
+            idx_m = torch.arange(n_batch)[:, None, None]
+            input_tensor = input_tensors[in_way][idx_m, neighbor]
+            mask = expand_to(batch_data['mask'] < 0.5, 4 + in_way)
+            input_tensor = input_tensor.masked_fill(mask=mask, value=torch.tensor(0., device=neighbor.device))
+            # filter_tensor: [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]   
+            #                with  (r_way) n_dim
+            # input_tensor:  [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]  
+            #                with (in_way) n_dim
+
             coupling_way = (in_way + r_way - out_way) // 2
-            if r_way not in fn_dict:
-                fn_dict[r_way] = self.radius_fn_list[r_way](dij)
-            fn = fn_dict[r_way]                     # [n_batch, n_atoms, n_neigh]
-            filter_tensor = multi_outer_product(rij, r_way) * expand_to(fn, n_dim=r_way + 3)
 
-            ###################################################################
-            # print("Filter")
-            # print(out_way, in_way, r_way)
-            # if r_way == 0:
-            #     print(filter_tensor[0] - filter_tensor[1])
-            # if r_way == 1:
-            #     R1 = filter_tensor[0, :, 0]
-            #     R2 = filter_tensor[1, :, 0]
-            #     print((R1 @ R.T - R2) / R1)
-            # if r_way == 2:
-            #     T1 = filter_tensor[0, :, 0]
-            #     T2 = filter_tensor[1, :, 0]
-            #     print((T2 - torch.matmul(torch.matmul(R, T1), R.T)) / T2)
-            #################################################################
-            # print("In")
-            # print(out_way, in_way, r_way)
-            # if in_way == 0:
-            #     print(input_tensors[in_way][0] - input_tensors[in_way][1])
-            # if in_way == 1:
-            #     R1 = input_tensors[in_way][0, :, 0]
-            #     R2 = input_tensors[in_way][1, :, 0]
-            #     print((R1 @ R.T - R2) / R1)
-            # if in_way == 2:
-            #     T1 = input_tensors[in_way][0, :, 0]
-            #     T2 = input_tensors[in_way][1, :, 0]
-            #     print((T2 - torch.matmul(torch.matmul(R, T1), R.T)) / T2)
-            ##################################################################
-
-            # filter_tensor: 
-            #   [n_batch, n_atoms, n_neigh, n_dim, n_dim, ...]    with  (r_way) n_dim
-            # input_tensors[in_way]:
-            #   [n_batch, n_atoms, n_channel, n_dim, n_dim, ...]  with (in_way) n_dim
-            # TODO: Will use torch.einsum faster?
+            # # method 1 
             n_way = in_way + r_way - coupling_way + 4
-            input_tensor  = expand_to(input_tensors[in_way][:, :, :, None, ...], n_way, dim=-1)
-            filter_tensor = expand_to(filter_tensor[:, :, None, ...], n_way, dim=4)
+            input_tensor  = expand_to(input_tensor, n_way, dim=-1)
+            filter_tensor = expand_to(filter_tensor, n_way, dim=4)
 
-            # [n_batch, n_atoms, n_channel, n_neigh, n_dim, n_dim, ...]  with (in_way + r_way - coupling_way) n_dim
-            # We should sum up 3 (n_neigh) and (coupling_way) n_dim
-            sum_axis = [3] + [i for i in range(in_way - coupling_way + 4, in_way + 4)]
+            # input_tensor:  [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...,     1] 
+            # filter_tensor: [n_batch, n_atoms, n_neigh, n_channel,     1,     1, ..., n_dim]  
+            # with (in_way + r_way - coupling_way) dim after n_channel
+            # We should sum up 2 (n_neigh) and (coupling_way) n_dim
+            sum_axis = [2] + [i for i in range(in_way - coupling_way + 4, in_way + 4)]
             output_tensor = torch.sum(input_tensor * filter_tensor, dim=sum_axis)
+
+            # method 2
+            # Why opt_einsum slower?
+            # input_indices = [i for i in range(4, 4 + in_way - coupling_way)]
+            # coupling_indices = [i for i in range(4 + in_way - coupling_way, 4 + in_way)]
+            # filter_indices = [i for i in range(4 + in_way, 4 + in_way + r_way - coupling_way)]
+
+            # input_subscripts  = [0, 1, 2, 3] + input_indices + coupling_indices
+            # filter_subscripts = [0, 1, 2, 3] + coupling_indices + filter_indices
+            # output_subscripts = [0, 1, 2, 3] + input_indices + filter_indices
+            # output_tensor = oe.contract(input_tensor, input_subscripts, filter_tensor, filter_subscripts, output_subscripts)
+
             if output_tensors[out_way] is None:
                 output_tensors[out_way]  = output_tensor
             else:
                 output_tensors[out_way] += output_tensor 
-
-            ###################################################################
-            # print("Aggerate")
-            # print(out_way, in_way, r_way)
-            # if out_way == 0:
-            #     print(output_tensor[0] - output_tensor[1])
-            # if out_way == 1:
-            #     R1 = output_tensor[0, :, 0]
-            #     R2 = output_tensor[1, :, 0]
-            #     print((R1 @ R.T - R2) / R1)
-            # if out_way == 2:
-            #     T1 = output_tensor[0, :, 0]
-            #     T2 = output_tensor[1, :, 0]
-            #     print((T2 - torch.matmul(torch.matmul(R, T1), R.T)) / T2)
-            ##################################################################
-
         return output_tensors
 
 
@@ -132,31 +112,12 @@ class SelfInteractionLayer(nn.Module):
     def forward(self,
                 input_tensors : Dict[int, torch.Tensor],
                 ) -> Dict[int, torch.Tensor]:
-        # input_tensors:
-        #   0: [n_batch, n_atoms, n_channel]
-        #   1: [n_batch, n_atoms, n_channel, n_dim]
-        #   2: [n_batch, n_atoms, n_channel, n_dim, n_dim]
-        #   .....
         output_tensors = {}
         for way in input_tensors:
             # swap channel axis and the last dim axis
             input_tensor = torch.transpose(input_tensors[way], 2, -1)
             output_tensor = self.linear_interact_list[way](input_tensor)
             output_tensors[way] = torch.transpose(output_tensor, 2, -1)
-            ###################################################################
-            # print("Self")
-            # print(way)
-            # if way == 0:
-            #     print(output_tensors[way][0] - output_tensors[way][1])
-            # if way == 1:
-            #     R1 = output_tensors[way][0, :, 0]
-            #     R2 = output_tensors[way][1, :, 0]
-            #     print(R1 @ R.T - R2)
-            # if way == 2:
-            #     T1 = output_tensors[way][0, :, 0]
-            #     T2 = output_tensors[way][1, :, 0]
-            #     print(T2 - torch.matmul(torch.matmul(R, T1), R.T))
-            ##################################################################
         return output_tensors
 
 
@@ -175,11 +136,6 @@ class NonLinearLayer(nn.Module):
     def forward(self,
                 input_tensors: torch.Tensor,
                 ) -> torch.Tensor:
-        # input_tensors:
-        #   0: [n_batch, n_atoms, n_channel]
-        #   1: [n_batch, n_atoms, n_channel, n_dim]
-        #   2: [n_batch, n_atoms, n_channel, n_dim, n_dim]
-        #   .....
         output_tensors = {}
         for way in input_tensors:
             if way == 0:
@@ -189,36 +145,23 @@ class NonLinearLayer(nn.Module):
                 factor = self.activate_fn(self.weights[way] * norm + self.bias[way])
                 output_tensor = factor * input_tensors[way]
             output_tensors[way] = output_tensor
-            ###################################################################
-            # print("Non")
-            # print(way)
-            # if way == 0:
-            #     print(output_tensor[0] - output_tensor[1])
-            # if way == 1:
-            #     R1 = output_tensor[0, :, 0]
-            #     R2 = output_tensor[1, :, 0]
-            #     print(R1 @ R.T - R2)
-            # if way == 2:
-            #     T1 = output_tensor[0, :, 0]
-            #     T2 = output_tensor[1, :, 0]
-            #     print(T2 - torch.matmul(torch.matmul(R, T1), R.T))
-            ##################################################################
         return output_tensors
 
 
 class SOnEquivalentLayer(nn.Module):
     def __init__(self,
                  activate_fn    : Callable,
-                 radius_fn      : RadiusFunction,
+                 radial_fn      : RadialLayer,
+                 cutoff_fn      : CutoffLayer,
                  max_r_way      : int,
                  max_out_way    : int,
                  input_dim      : int,
                  output_dim     : int,
-                 radius_fn_para : Dict={},
                  ) -> None:
         super().__init__()
-        self.tensor_aggregate = TensorAggregateLayer(radius_fn=radius_fn,
-                                                     radius_fn_para=radius_fn_para,
+        self.tensor_aggregate = TensorAggregateLayer(radial_fn=radial_fn,
+                                                     cutoff_fn=cutoff_fn,
+                                                     n_channel=input_dim,
                                                      max_out_way=max_out_way, 
                                                      max_r_way=max_r_way)
         # input for SelfInteractionLayer and NonLinearLayer is the output of TensorAggregateLayer
@@ -232,17 +175,7 @@ class SOnEquivalentLayer(nn.Module):
     def forward(self,
                 input_tensors : Dict[int, torch.Tensor],
                 batch_data    : Dict[str, torch.Tensor],
-                # coordinate    : torch.Tensor,
-                # neighbor      : torch.Tensor,
-                # mask          : torch.Tensor,
-                # cell          : Optional[torch.Tensor]=None,
-                # offset        : Optional[torch.Tensor]=None,
                 ) -> Dict[int, torch.Tensor]:
-        # input_tensors:
-        #   0: [n_batch, n_atoms, n_channel]
-        #   1: [n_batch, n_atoms, n_channel, n_dim]
-        #   2: [n_batch, n_atoms, n_channel, n_dim, n_dim]
-        #   .....
         output_tensors = self.tensor_aggregate(input_tensors=input_tensors, 
                                                batch_data=batch_data)
         output_tensors = self.self_interact(output_tensors)

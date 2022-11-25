@@ -3,8 +3,9 @@ from torch import nn
 from typing import Callable, List, Dict, Optional
 from tensornet.layer.equivalent import SOnEquivalentLayer, SelfInteractionLayer
 from tensornet.layer.embedding import EmbeddingLayer
-from tensornet.layer.radius import RadiusFunction
+from tensornet.layer.radial import RadialLayer
 from tensornet.layer.readout import ReadoutLayer
+from tensornet.layer.cutoff import CutoffLayer
 from tensornet.utils import expand_to, find_distances
 
 
@@ -42,7 +43,7 @@ class ANI(nn.Module):
             output_tensors = self.activate_fn(layer(output_tensors))
         output_tensors = self.readout_layer(output_tensors).squeeze(2)
         symbol_mask = batch_data['atomic_number'] < 0.5
-        output_tensors.masked_fill(mask=symbol_mask, value=torch.tensor(0.))
+        output_tensors.masked_fill(mask=symbol_mask, value=torch.tensor(0., device=batch_data['coordinate'].device))
         return output_tensors
     
     
@@ -50,14 +51,14 @@ class TensorMessagePassingNet(nn.Module):
 
     def __init__(self,
                  embedding_layer : EmbeddingLayer,
-                 radius_fn       : RadiusFunction,
+                 radial_fn       : RadialLayer,
+                 cutoff_fn       : CutoffLayer,
                  n_layers        : int,
                  max_r_way       : int or List,
                  max_out_way     : int or List,
                  output_dim      : int or List,
                  activate_fn     : Callable,
                  target_way      : List[int]=[0],
-                 radius_fn_para  : Dict={},
                  ):
         super().__init__()
         self.embedding_layer = embedding_layer
@@ -66,8 +67,8 @@ class TensorMessagePassingNet(nn.Module):
         hidden_nodes = [embedding_layer.n_channel] + expand_para(output_dim, n_layers)
         self.son_equivalent_layers = nn.ModuleList(
             [SOnEquivalentLayer(activate_fn=activate_fn,
-                                radius_fn=radius_fn,
-                                radius_fn_para=radius_fn_para,
+                                radial_fn=radial_fn,
+                                cutoff_fn=cutoff_fn,
                                 max_r_way=max_r_way[i],
                                 max_out_way=max_out_way[i],
                                 input_dim=hidden_nodes[i],
@@ -77,12 +78,6 @@ class TensorMessagePassingNet(nn.Module):
 
     def forward(self,
                 batch_data : Dict[str, torch.Tensor],
-                # coordinate    : torch.Tensor,
-                # atomic_number : torch.Tensor,
-                # neighbor      : torch.Tensor,
-                # mask          : torch.Tensor,
-                # cell          : Optional[torch.Tensor]=None,
-                # offset        : Optional[torch.Tensor]=None,
                 ) -> Dict[int, torch.Tensor]:
         # TODO: or move this to data prepare?
         find_distances(batch_data)

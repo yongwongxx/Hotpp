@@ -56,18 +56,13 @@ def multi_outer_product(v: torch.Tensor,
 
 
 def find_distances(batch_data : Dict[str, torch.Tensor],
-                #    coordinate : torch.Tensor,
-                #    neighbor   : torch.Tensor,
-                #    mask       : torch.Tensor,
-                #    cell       : Optional[torch.Tensor]=None,
-                #    offset     : Optional[torch.Tensor]=None,
                    ) -> None:
     """get distances between atoms
 
-    Args:
+    Elements in batch_data:
         coordinate (torch.Tensor): coordinate of atoms [n_batch, n_atoms, n_dim]  (float)
         neighbor (torch.Tensor): neighbor of atoms [n_batch, n_atoms, n_neigh]    (int)
-        cell (torch.Tensor): cell of atoms [n_batch, n_atoms, n_dim, n_dim]       (float)
+        mask (torch.Tensor): mask of atoms [n_batch, n_atoms, n_neigh]            (int)
         offset (torch.Tensor): offset of cells [n_batch, n_atoms, n_neigh, n_dim] (int)
 
     Returns:
@@ -91,7 +86,7 @@ def find_distances(batch_data : Dict[str, torch.Tensor],
             rj += offset
         distances = rj - ri
         mask = torch.unsqueeze(mask < 0.5, dim=-1)
-        distances = distances.masked_fill(mask=mask, value=torch.tensor(0.))
+        distances = distances.masked_fill(mask=mask, value=torch.tensor(0., device=coordinate.device))
         batch_data['rij'] = distances
     if 'dij' not in batch_data:
         batch_data['dij'] = torch.norm(batch_data['rij'], dim=-1)

@@ -26,5 +26,5 @@ class ReadoutLayer(nn.Module):
             output_tensor = self.readout_list[way](input_tensor)
             output_tensor = torch.transpose(output_tensor, 2, -1).squeeze(2)  # delete channel dim
             output_tensors[way] = output_tensor.masked_fill(mask=expand_to(symbol_mask, way + 2), 
-                                                            value=torch.tensor(0.))
+                                                            value=torch.tensor(0., device=input_tensors[way].device))
         return output_tensors
