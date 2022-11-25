@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from einops import rearrange
-from typing import List, Optional
+from typing import List, Optional, Dict
 from .cutoff import CutoffLayer
 from ..utils import find_distances
 
@@ -102,31 +102,30 @@ class BehlerG1(EmbeddingLayer):
         self.n_channel = n_radius * self.atomic_embedding.n_channel
 
     def forward(self,
-                coordinate    : torch.Tensor,
-                atomic_number : torch.Tensor,
-                neighbor      : torch.Tensor,
-                mask          : torch.Tensor,
-                cell          : Optional[torch.Tensor]=None,
-                offset        : Optional[torch.Tensor]=None,
+                batch_data  : Dict[str, torch.Tensor],
+                # coordinate    : torch.Tensor,
+                # atomic_number : torch.Tensor,
+                # neighbor      : torch.Tensor,
+                # mask          : torch.Tensor,
+                # cell          : Optional[torch.Tensor]=None,
+                # offset        : Optional[torch.Tensor]=None,
                 ) -> torch.Tensor:
-        n_batch = coordinate.shape[0]
-        z_ratio = self.atomic_embedding(atomic_number)
-        idx_m = torch.arange(n_batch, device=coordinate.device)[:, None, None]
-        z_ij = z_ratio[idx_m, neighbor]
-        r_ij = find_distances(coordinate=coordinate, 
-                              cell=cell,
-                              mask=mask,
-                              neighbor=neighbor,
-                              offset=offset)
-        # r_ij: [n_batch, n_atoms, n_neigh, n_dim]
-        d_ij = torch.norm(r_ij, dim=3, keepdim=True)
+        atomic_number = batch_data['atomic_number']
+        neighbor = batch_data['neighbor']
+        n_batch, n_atoms = atomic_number.shape
+        device = atomic_number.device
 
-        x = -self.etas[None, None, None, :] * (d_ij - self.rss[None, None, None, :]) ** 2
+        z_ratio = self.atomic_embedding(atomic_number)
+        idx_m = torch.arange(n_batch, device=device)[:, None, None]
+        z_ij = z_ratio[idx_m, neighbor]
+
+        find_distances(batch_data)
+        d_ij = batch_data['dij'].unsqueeze(-1)
+        x = -self.etas * (d_ij - self.rss) ** 2
         cut = self.cut_fn(d_ij)
         f = torch.exp(x) * cut
         # f: (n_batch, n_atoms, n_neigh, n_channel)
         # z_ij: (n_batch, n_atoms, n_neigh, n_embedded)
-        n_atoms = coordinate.shape[1]
         f = torch.sum(f.unsqueeze(-1) * z_ij.unsqueeze(-2), dim=2).view(n_batch, n_atoms, -1)
         # f = rearrange(torch.einsum('b i j c, b i j e -> b i c e', f, z_ij), 'b i c e -> b i (c e)')
         return f

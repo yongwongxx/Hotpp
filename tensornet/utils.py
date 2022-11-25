@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import itertools
 from einops import rearrange, reduce, repeat
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Dict
 
 
 def setup_seed(seed):
@@ -55,12 +55,13 @@ def multi_outer_product(v: torch.Tensor,
     return out
 
 
-def find_distances(coordinate : torch.Tensor,
-                   neighbor   : torch.Tensor,
-                   mask       : torch.Tensor,
-                   cell       : Optional[torch.Tensor]=None,
-                   offset     : Optional[torch.Tensor]=None,
-                   ) -> torch.Tensor:
+def find_distances(batch_data : Dict[str, torch.Tensor],
+                #    coordinate : torch.Tensor,
+                #    neighbor   : torch.Tensor,
+                #    mask       : torch.Tensor,
+                #    cell       : Optional[torch.Tensor]=None,
+                #    offset     : Optional[torch.Tensor]=None,
+                   ) -> None:
     """get distances between atoms
 
     Args:
@@ -72,25 +73,29 @@ def find_distances(coordinate : torch.Tensor,
     Returns:
         torch.Tensor: distances [n_batch, n_atoms, n_neigh, n_dim]
     """
-    n_batch, n_atoms, n_neigh = neighbor.shape
-    n_dim = coordinate.shape[-1]
+    if 'rij' not in batch_data:
+        coordinate = batch_data['coordinate']
+        neighbor   = batch_data['neighbor']
+        mask       = batch_data['mask']
+        offset     = batch_data['offset']
+        n_batch = neighbor.shape[0]
 
-    # TODO: which is faster?
-    # ri = repeat(coordinate, 'b i d -> b i j d', j=n_neigh)
-    # rj = repeat(coordinate, 'b j d -> b i j d', i=n_atoms).gather(2, repeat(neighbor, 'b i j -> b i j d', d=n_dim))
+        # TODO: which is faster?
+        # ri = repeat(coordinate, 'b i d -> b i j d', j=n_neigh)
+        # rj = repeat(coordinate, 'b j d -> b i j d', i=n_atoms).gather(2, repeat(neighbor, 'b i j -> b i j d', d=n_dim))
 
-    idx_m = torch.arange(n_batch, device=coordinate.device)[:, None, None]
-    ri = coordinate[:, :, None, :]
-    rj = coordinate[idx_m, neighbor]
-
-    if cell is not None:
-        # offset = offset.view(n_batch, -1, n_dim).bmm(cell)
-        # offset = offset.view(n_batch, n_atoms, n_neigh, n_dim)
-        rj += offset
-    distances = rj - ri
-    mask = torch.unsqueeze(mask < 0.5, dim=-1)
-    distances = distances.masked_fill(mask=mask, value=torch.tensor(0.))
-    return distances
+        idx_m = torch.arange(n_batch, device=coordinate.device)[:, None, None]
+        ri = coordinate[:, :, None, :]
+        rj = coordinate[idx_m, neighbor]
+        if offset is not None:
+            rj += offset
+        distances = rj - ri
+        mask = torch.unsqueeze(mask < 0.5, dim=-1)
+        distances = distances.masked_fill(mask=mask, value=torch.tensor(0.))
+        batch_data['rij'] = distances
+    if 'dij' not in batch_data:
+        batch_data['dij'] = torch.norm(batch_data['rij'], dim=-1)
+    return None
 
 
 def get_elements(frames):

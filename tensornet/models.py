@@ -5,7 +5,7 @@ from tensornet.layer.equivalent import SOnEquivalentLayer, SelfInteractionLayer
 from tensornet.layer.embedding import EmbeddingLayer
 from tensornet.layer.radius import RadiusFunction
 from tensornet.layer.readout import ReadoutLayer
-from tensornet.utils import expand_to
+from tensornet.utils import expand_to, find_distances
 
 
 def expand_para(para: int or List, n: int):
@@ -33,23 +33,15 @@ class ANI(nn.Module):
         self.activate_fn = activate_fn
 
     def forward(self, 
-                coordinate    : torch.Tensor,
-                atomic_number : torch.Tensor,
-                neighbor      : torch.Tensor,
-                mask          : torch.Tensor,
-                cell          : Optional[torch.Tensor]=None,
-                offset        : Optional[torch.Tensor]=None,
+                batch_data : Dict[str, torch.Tensor],
                 ) -> torch.Tensor:
-        output_tensors = self.embedding_layer(coordinate=coordinate,
-                                              atomic_number=atomic_number,
-                                              neighbor=neighbor,
-                                              mask=mask,
-                                              cell=cell,
-                                              offset=offset)
+        # TODO: or move this to data prepare?
+        find_distances(batch_data)
+        output_tensors = self.embedding_layer(batch_data=batch_data)
         for layer in self.linear_layers:
             output_tensors = self.activate_fn(layer(output_tensors))
         output_tensors = self.readout_layer(output_tensors).squeeze(2)
-        symbol_mask = atomic_number < 0.5
+        symbol_mask = batch_data['atomic_number'] < 0.5
         output_tensors.masked_fill(mask=symbol_mask, value=torch.tensor(0.))
         return output_tensors
     
@@ -84,27 +76,20 @@ class TensorMessagePassingNet(nn.Module):
                                           target_way=target_way)
 
     def forward(self,
-                coordinate    : torch.Tensor,
-                atomic_number : torch.Tensor,
-                neighbor      : torch.Tensor,
-                mask          : torch.Tensor,
-                cell          : Optional[torch.Tensor]=None,
-                offset        : Optional[torch.Tensor]=None,
+                batch_data : Dict[str, torch.Tensor],
+                # coordinate    : torch.Tensor,
+                # atomic_number : torch.Tensor,
+                # neighbor      : torch.Tensor,
+                # mask          : torch.Tensor,
+                # cell          : Optional[torch.Tensor]=None,
+                # offset        : Optional[torch.Tensor]=None,
                 ) -> Dict[int, torch.Tensor]:
-
-        output_tensors = {0: self.embedding_layer(coordinate=coordinate,
-                                                  atomic_number=atomic_number,
-                                                  neighbor=neighbor,
-                                                  mask=mask,
-                                                  cell=cell,
-                                                  offset=offset)}
+        # TODO: or move this to data prepare?
+        find_distances(batch_data)
+        output_tensors = {0: self.embedding_layer(batch_data=batch_data)}
         for layer in self.son_equivalent_layers:
             output_tensors = layer(input_tensors=output_tensors, 
-                                   coordinate=coordinate, 
-                                   neighbor=neighbor,
-                                   mask=mask,
-                                   cell=cell,
-                                   offset=offset)
+                                   batch_data=batch_data)
         output_tensors = self.readout_layer(output_tensors,
-                                            atomic_number=atomic_number)
+                                            atomic_number=batch_data['atomic_number'])
         return output_tensors

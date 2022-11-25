@@ -40,10 +40,7 @@ class TestMolecule(unittest.TestCase):
         layer = BehlerG1(n_radius=10,
                         cut_fn=cut_fn, 
                         atomic_fn=atomic_fn,)
-        emb = layer.forward(coordinate=self.batch_data['coordinate'], 
-                            atomic_number=self.batch_data['symbol'], 
-                            neighbor=self.batch_data['neighbor'],
-                            mask=self.batch_data['mask']).detach().numpy()
+        emb = layer(self.batch_data).detach().numpy()
         np.testing.assert_array_almost_equal(emb[0], emb[1], decimal=6)
     
     def check_tensor_equivalent(self, tensor):
@@ -67,15 +64,12 @@ class TestMolecule(unittest.TestCase):
                                      max_out_way=2,
                                      max_r_way=2)
         output_tensors = layer(input_tensors, 
-                               self.batch_data['coordinate'],
-                               self.batch_data['neighbor'],
-                               self.batch_data['mask'],
-                               None, None)
+                               self.batch_data)
         self.check_tensor_equivalent(output_tensors)
 
     def test_self_interact(self):
         input_tensors = {}
-        input_tensors[0] = torch.unsqueeze(self.batch_data['symbol'], 2).float()
+        input_tensors[0] = torch.unsqueeze(self.batch_data['atomic_number'], 2).float()
         input_tensors[1] = torch.unsqueeze(self.batch_data['coordinate'], 2)
         input_tensors[2] = multi_outer_product(input_tensors[1], 2)
         layer1 = SelfInteractionLayer(input_dim=1,
@@ -90,7 +84,7 @@ class TestMolecule(unittest.TestCase):
     
     def test_non_linear(self):
         input_tensors = {}
-        input_tensors[0] = torch.unsqueeze(self.batch_data['symbol'], 2).float()
+        input_tensors[0] = torch.unsqueeze(self.batch_data['atomic_number'], 2).float()
         input_tensors[1] = torch.unsqueeze(self.batch_data['coordinate'], 2)
         input_tensors[2] = multi_outer_product(input_tensors[1], 2)
         layer = NonLinearLayer(activate_fn=torch.sigmoid,
@@ -100,7 +94,7 @@ class TestMolecule(unittest.TestCase):
 
     def test_son_equivalent(self):
         input_tensors = {}
-        input_tensors[0] = torch.unsqueeze(self.batch_data['symbol'], 2).float()
+        input_tensors[0] = torch.unsqueeze(self.batch_data['atomic_number'], 2).float()
         input_tensors[1] = torch.unsqueeze(self.batch_data['coordinate'], 2)
         input_tensors[2] = multi_outer_product(input_tensors[1], 2)
         radius_fn = ChebyshevPoly
@@ -113,10 +107,7 @@ class TestMolecule(unittest.TestCase):
                                    input_dim=1,
                                    output_dim=1)
         output_tensors = layer(input_tensors, 
-                               self.batch_data['coordinate'],
-                               self.batch_data['neighbor'],
-                               self.batch_data['mask'],
-                               None, None)
+                               self.batch_data)
         self.check_tensor_equivalent(output_tensors)
     
     def test_multi_son_equivalent(self):
@@ -147,20 +138,11 @@ class TestMolecule(unittest.TestCase):
                                     output_dim=1)
 
         output_tensors = layer1(input_tensors, 
-                                self.batch_data['coordinate'],
-                                self.batch_data['neighbor'],
-                                self.batch_data['mask'],
-                                None, None)
+                                self.batch_data)
         output_tensors = layer2(output_tensors, 
-                                self.batch_data['coordinate'],
-                                self.batch_data['neighbor'],
-                                self.batch_data['mask'],
-                                None, None)
+                                self.batch_data)
         output_tensors = layer3(output_tensors, 
-                                self.batch_data['coordinate'],
-                                self.batch_data['neighbor'],
-                                self.batch_data['mask'],
-                                None, None)
+                                self.batch_data)
         self.check_tensor_equivalent(output_tensors)
         
     def test_tensor_passing_net(self):
@@ -180,11 +162,7 @@ class TestMolecule(unittest.TestCase):
                                         output_dim=[10, 10, 10],
                                         activate_fn=torch.sigmoid,
                                         target_way=[0])
-        output_tensors = model(self.batch_data['coordinate'],
-                               self.batch_data['symbol'],
-                               self.batch_data['neighbor'],
-                               self.batch_data['mask'],
-                               None, None)
+        output_tensors = model(self.batch_data)
         E1 = output_tensors[0][0].detach().numpy()
         E2 = output_tensors[0][1].detach().numpy()
         np.testing.assert_array_almost_equal(E1, E2, decimal=5)
@@ -207,11 +185,7 @@ class TestMolecule(unittest.TestCase):
                                         activate_fn=torch.sigmoid,
                                         target_way=[0])
         self.batch_data['coordinate'].requires_grad_()
-        output_tensors = model(self.batch_data['coordinate'],
-                               self.batch_data['symbol'],
-                               self.batch_data['neighbor'],
-                               self.batch_data['mask'],
-                               None, None)
+        output_tensors = model(self.batch_data)
         forces = -torch.autograd.grad(
             output_tensors[0].sum(),
             self.batch_data['coordinate'],

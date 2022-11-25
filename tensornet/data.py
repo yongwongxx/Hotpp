@@ -2,6 +2,7 @@ from torch.utils.data import Dataset
 import torch
 import numpy as np
 from tensornet.neighbor import get_environment
+from tensornet.utils import find_distances
 
 
 class AtomsData(Dataset):
@@ -38,7 +39,7 @@ def get_dict(atoms, cutoff):
         'mask': torch.from_numpy(mask).float(),
         'coordinate': torch.tensor(atoms.positions).float(),
         'cell': torch.tensor(atoms.cell[:]).float(),
-        'symbol': torch.tensor(atoms.numbers).long(),
+        'atomic_number': torch.tensor(atoms.numbers).long(),
         'scaling': torch.eye(3).float(),
     }
 

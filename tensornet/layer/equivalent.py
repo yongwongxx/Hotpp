@@ -26,11 +26,12 @@ class TensorAggregateLayer(nn.Module):
 
     def forward(self, 
                 input_tensors : Dict[int, torch.Tensor],
-                coordinate    : torch.Tensor,                   
-                neighbor      : torch.Tensor,
-                mask          : torch.Tensor,
-                cell          : Optional[torch.Tensor]=None,
-                offset        : Optional[torch.Tensor]=None,
+                batch_data    : Dict[str, torch.Tensor],
+                # coordinate    : torch.Tensor,                   
+                # neighbor      : torch.Tensor,
+                # mask          : torch.Tensor,
+                # cell          : Optional[torch.Tensor]=None,
+                # offset        : Optional[torch.Tensor]=None,
                 ) -> Dict[int, torch.Tensor]:
         # input_tensors:
         #   0: [n_batch, n_atoms, n_channel]
@@ -39,12 +40,9 @@ class TensorAggregateLayer(nn.Module):
         #   .....
         # coordinate: [n_batch, n_atoms, n_dim]
         output_tensors = {way: None for way in range(self.max_out_way + 1)}
-        rij = find_distances(coordinate=coordinate,
-                                 neighbor=neighbor,
-                                 mask=mask,
-                                 cell=cell,
-                                 offset=offset)
-        dij = torch.linalg.norm(rij, dim=-1)
+        find_distances(batch_data)
+        rij = batch_data['rij']
+        dij = batch_data['dij']
         fn_dict = {}
         for out_way, in_way, r_way in way_combination(range(self.max_out_way + 1), 
                                                       input_tensors.keys(), 
@@ -233,11 +231,12 @@ class SOnEquivalentLayer(nn.Module):
 
     def forward(self,
                 input_tensors : Dict[int, torch.Tensor],
-                coordinate    : torch.Tensor,
-                neighbor      : torch.Tensor,
-                mask          : torch.Tensor,
-                cell          : Optional[torch.Tensor]=None,
-                offset        : Optional[torch.Tensor]=None,
+                batch_data    : Dict[str, torch.Tensor],
+                # coordinate    : torch.Tensor,
+                # neighbor      : torch.Tensor,
+                # mask          : torch.Tensor,
+                # cell          : Optional[torch.Tensor]=None,
+                # offset        : Optional[torch.Tensor]=None,
                 ) -> Dict[int, torch.Tensor]:
         # input_tensors:
         #   0: [n_batch, n_atoms, n_channel]
@@ -245,11 +244,7 @@ class SOnEquivalentLayer(nn.Module):
         #   2: [n_batch, n_atoms, n_channel, n_dim, n_dim]
         #   .....
         output_tensors = self.tensor_aggregate(input_tensors=input_tensors, 
-                                               coordinate=coordinate,
-                                               neighbor=neighbor,
-                                               mask=mask,
-                                               cell=cell,
-                                               offset=offset)
+                                               batch_data=batch_data)
         output_tensors = self.self_interact(output_tensors)
         output_tensors = self.non_linear(output_tensors)
         return output_tensors

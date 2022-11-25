@@ -43,10 +43,7 @@ class TestMolecule(unittest.TestCase):
         layer = BehlerG1(n_radius=10,
                          cut_fn=cut_fn, 
                          atomic_fn=atomic_fn,)
-        emb = layer.forward(coordinate=self.batch_data['coordinate'], 
-                            atomic_number=self.batch_data['symbol'], 
-                            neighbor=self.batch_data['neighbor'],
-                            mask=self.batch_data['mask']).detach().numpy()
+        emb = layer(self.batch_data).detach().numpy()
         np.testing.assert_array_almost_equal(emb[0, 0], emb[1, 0], decimal=6)
 
     def test_son_0(self):
@@ -71,20 +68,11 @@ class TestMolecule(unittest.TestCase):
                                     max_out_way=0,
                                     input_dim=emb.n_channel,
                                     output_dim=10)
-        input_tensors = {0: emb.forward(coordinate=self.batch_data['coordinate'], 
-                                        atomic_number=self.batch_data['symbol'], 
-                                        neighbor=self.batch_data['neighbor'],
-                                        mask=self.batch_data['mask'])}
+        input_tensors = {0: emb(self.batch_data)}
         output_tensors = layer1(input_tensors, 
-                                self.batch_data['coordinate'],
-                                self.batch_data['neighbor'],
-                                self.batch_data['mask'],
-                                None, None)
+                                self.batch_data)
         output_tensors = layer2(output_tensors, 
-                                self.batch_data['coordinate'],
-                                self.batch_data['neighbor'],
-                                self.batch_data['mask'],
-                                None, None)[0].detach().numpy()
+                                self.batch_data)[0].detach().numpy()
         np.testing.assert_array_almost_equal(output_tensors[0, 0], output_tensors[1, 0], decimal=6)
         
     def test_son_1(self):
@@ -109,20 +97,11 @@ class TestMolecule(unittest.TestCase):
                                     max_out_way=1,
                                     input_dim=emb.n_channel,
                                     output_dim=10)
-        input_tensors = {0: emb.forward(coordinate=self.batch_data['coordinate'], 
-                                        atomic_number=self.batch_data['symbol'], 
-                                        neighbor=self.batch_data['neighbor'],
-                                        mask=self.batch_data['mask'])}
+        input_tensors = {0: emb(self.batch_data)}
         output_tensors = layer1(input_tensors, 
-                                self.batch_data['coordinate'],
-                                self.batch_data['neighbor'],
-                                self.batch_data['mask'],
-                                None, None)
+                                self.batch_data)
         output_tensors = layer2(output_tensors, 
-                                self.batch_data['coordinate'],
-                                self.batch_data['neighbor'],
-                                self.batch_data['mask'],
-                                None, None)[0].detach().numpy()
+                                self.batch_data)[0].detach().numpy()
         self.assertFalse(np.allclose(output_tensors[0, 0], output_tensors[1, 0]))
     
     def test_son_2(self):
@@ -147,20 +126,11 @@ class TestMolecule(unittest.TestCase):
                                     max_out_way=2,
                                     input_dim=emb.n_channel,
                                     output_dim=10)
-        input_tensors = {0: emb.forward(coordinate=self.batch_data['coordinate'], 
-                                        atomic_number=self.batch_data['symbol'], 
-                                        neighbor=self.batch_data['neighbor'],
-                                        mask=self.batch_data['mask'])}
+        input_tensors = {0: emb(self.batch_data)}
         output_tensors = layer1(input_tensors, 
-                                self.batch_data['coordinate'],
-                                self.batch_data['neighbor'],
-                                self.batch_data['mask'],
-                                None, None)
+                                self.batch_data)
         output_tensors = layer2(output_tensors, 
-                                self.batch_data['coordinate'],
-                                self.batch_data['neighbor'],
-                                self.batch_data['mask'],
-                                None, None)[0].detach().numpy()
+                                self.batch_data)[0].detach().numpy()
         self.assertFalse(np.allclose(output_tensors[0, 0], output_tensors[1, 0]))
 
 
