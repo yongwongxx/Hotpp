@@ -111,7 +111,7 @@ class BehlerG1(EmbeddingLayer):
                 ) -> torch.Tensor:
         n_batch = coordinate.shape[0]
         z_ratio = self.atomic_embedding(atomic_number)
-        idx_m = torch.arange(n_batch)[:, None, None]
+        idx_m = torch.arange(n_batch, device=coordinate.device)[:, None, None]
         z_ij = z_ratio[idx_m, neighbor]
         r_ij = find_distances(coordinate=coordinate, 
                               cell=cell,

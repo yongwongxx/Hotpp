@@ -79,7 +79,7 @@ def find_distances(coordinate : torch.Tensor,
     # ri = repeat(coordinate, 'b i d -> b i j d', j=n_neigh)
     # rj = repeat(coordinate, 'b j d -> b i j d', i=n_atoms).gather(2, repeat(neighbor, 'b i j -> b i j d', d=n_dim))
 
-    idx_m = torch.arange(n_batch)[:, None, None]
+    idx_m = torch.arange(n_batch, device=coordinate.device)[:, None, None]
     ri = coordinate[:, :, None, :]
     rj = coordinate[idx_m, neighbor]
 

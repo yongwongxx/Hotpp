@@ -45,12 +45,14 @@ class TensorAggregateLayer(nn.Module):
                                  cell=cell,
                                  offset=offset)
         dij = torch.linalg.norm(rij, dim=-1)
-
+        fn_dict = {}
         for out_way, in_way, r_way in way_combination(range(self.max_out_way + 1), 
                                                       input_tensors.keys(), 
                                                       range(self.max_r_way + 1)):
             coupling_way = (in_way + r_way - out_way) // 2
-            fn = self.radius_fn_list[r_way](dij)    # [n_batch, n_atoms, n_neigh]
+            if r_way not in fn_dict:
+                fn_dict[r_way] = self.radius_fn_list[r_way](dij)
+            fn = fn_dict[r_way]                     # [n_batch, n_atoms, n_neigh]
             filter_tensor = multi_outer_product(rij, r_way) * expand_to(fn, n_dim=r_way + 3)
 
             ###################################################################
