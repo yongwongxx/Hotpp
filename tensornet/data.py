@@ -2,14 +2,16 @@ from torch.utils.data import Dataset
 import torch
 import numpy as np
 from tensornet.neighbor import get_environment
-from tensornet.utils import find_distances
+from tensornet.utils import find_distances, EnvPara
+import os
 
 
 class AtomsData(Dataset):
-    def __init__(self, frames, cutoff):
+    def __init__(self, frames, cutoff, device='cpu'):
         self.frames = frames
         self.cutoff = cutoff
         self.datalist = [{} for _ in range(len(frames))]
+        self.device = device
 
     def __len__(self):
         return len(self.frames)
@@ -21,7 +23,7 @@ class AtomsData(Dataset):
     def __getitem__(self, i):
         if not self.datalist[i]:
             atoms = self.frames[i]
-            self.datalist[i] = get_dict(atoms, self.cutoff)
+            self.datalist[i] = get_dict(atoms, self.cutoff, self.device)
         return self.datalist[i]
 
     def remove(self, index):
@@ -30,41 +32,42 @@ class AtomsData(Dataset):
             self.datalist.pop(i)
 
 
-def get_dict(atoms, cutoff):
+def get_dict(atoms, cutoff, device='cpu'):
     neighbor, offset, mask = get_environment(atoms, cutoff)
 
     d = {
-        'neighbor': torch.from_numpy(neighbor).long(),
-        'offset': torch.from_numpy(offset).float(),
-        'mask': torch.from_numpy(mask).float(),
-        'coordinate': torch.tensor(atoms.positions).float(),
-        'cell': torch.tensor(atoms.cell[:]).float(),
-        'atomic_number': torch.tensor(atoms.numbers).long(),
-        'scaling': torch.eye(3).float(),
+        'neighbor': torch.tensor(neighbor, dtype=torch.long, device=device),
+        'offset': torch.tensor(offset, dtype=EnvPara.FLOAT_PRECISION, device=device),
+        'mask': torch.tensor(mask, dtype=torch.bool, device=device),
+        'coordinate': torch.tensor(atoms.positions, dtype=EnvPara.FLOAT_PRECISION, device=device),
+        'cell': torch.tensor(atoms.cell[:], dtype=EnvPara.FLOAT_PRECISION, device=device),
+        'atomic_number': torch.tensor(atoms.numbers, dtype=torch.long, device=device),
+        'scaling': torch.eye(3, dtype=EnvPara.FLOAT_PRECISION, device=device),
+        'n_atoms': torch.tensor(len(atoms), dtype=EnvPara.FLOAT_PRECISION, device=device)
     }
 
     for key in ['energy', 'forces']:#, 'stress']:
         if key in atoms.info:
-            d[key] = torch.tensor(atoms.info[key]).float()
+            d[key + '_t'] = torch.tensor(atoms.info[key], dtype=EnvPara.FLOAT_PRECISION, device=device)
     return d
 
 
 def _collate_atoms(data):
-    properties = data[0]
+    example = data[0]
     max_size = {
-        prop: np.array(val.size(), dtype=int) for prop, val in properties.items()
+        prop: np.array(val.size(), dtype=int) for prop, val in example.items()
     }
 
-    for properties in data[1:]:
-        for prop, val in properties.items():
+    for d in data[1:]:
+        for prop, val in d.items():
             max_size[prop] = np.maximum(
                 max_size[prop], np.array(val.size(), dtype=int)
             )
 
     batch = {
-        p: torch.zeros(len(data), *[int(ss) for ss in size]).type(
-            data[0][p].type()
-        )
+        p: torch.zeros(size=(len(data), *[int(ss) for ss in size]), 
+                       dtype=example[p].dtype,
+                       device=example[p].device)
         for p, size in max_size.items()
     }
 
@@ -73,6 +76,8 @@ def _collate_atoms(data):
             shape = val.size()
             s = (k,) + tuple([slice(0, d) for d in shape])
             batch[prop][s] = val
+    
+    batch['mask'] = ~batch['mask']   # True means no atoms 
     return batch
 
 

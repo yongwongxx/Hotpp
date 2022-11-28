@@ -103,12 +103,6 @@ class BehlerG1(EmbeddingLayer):
 
     def forward(self,
                 batch_data  : Dict[str, torch.Tensor],
-                # coordinate    : torch.Tensor,
-                # atomic_number : torch.Tensor,
-                # neighbor      : torch.Tensor,
-                # mask          : torch.Tensor,
-                # cell          : Optional[torch.Tensor]=None,
-                # offset        : Optional[torch.Tensor]=None,
                 ) -> torch.Tensor:
         atomic_number = batch_data['atomic_number']
         neighbor = batch_data['neighbor']

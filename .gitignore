@@ -2,6 +2,8 @@
 test.ipynb
 test.py
 test/
+tests/
+.vscode/
 .idea
 # Byte-compiled / optimized / DLL files
 __pycache__/

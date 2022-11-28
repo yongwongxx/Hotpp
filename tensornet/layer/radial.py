@@ -30,7 +30,7 @@ class ChebyshevPoly(RadialLayer):
                 distances: torch.Tensor,
                 ) -> torch.Tensor:
         x = torch.clamp((distances - self.r_min) / (self.r_max - self.r_min),
-                        min=0., max=1.)
+                        min=0., max=1.0)
         out = torch.cos(torch.arccos(x).unsqueeze(-1) * self.n)
         return out
 

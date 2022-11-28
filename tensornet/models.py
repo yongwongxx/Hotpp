@@ -18,7 +18,29 @@ def expand_para(para: int or List, n: int):
     return para    
 
 
-class ANI(nn.Module):
+class AtomicModule(nn.Module):
+    def forward(self, 
+                batch_data  : Dict[str, torch.Tensor],
+                properties  : List[str]=['energy'],
+                ) -> Dict[str, torch.Tensor]:
+        if 'forces' in properties:
+            batch_data['coordinate'].requires_grad_()
+        site_energy = self.get_site_energy(batch_data)
+        if 'energy' in properties:
+            batch_data['energy_p'] = site_energy.sum(dim=1)
+        if 'forces' in properties:
+            batch_data['forces_p'] = -torch.autograd.grad(site_energy.sum(),
+                                                          batch_data['coordinate'],
+                                                          create_graph=True,
+                                                          retain_graph=True)[0]
+        return batch_data
+
+    def get_site_energy(self):
+        raise NotImplementedError(f"{self.__class__.__name__} must have 'get_energy'!")
+
+
+
+class ANI(AtomicModule):
     def __init__(self,
                  embedding_layer : EmbeddingLayer,
                  n_layers        : int,
@@ -33,9 +55,9 @@ class ANI(nn.Module):
         self.readout_layer = nn.Linear(hidden_nodes[-1], 1)
         self.activate_fn = activate_fn
 
-    def forward(self, 
-                batch_data : Dict[str, torch.Tensor],
-                ) -> torch.Tensor:
+    def get_site_energy(self, 
+                        batch_data : Dict[str, torch.Tensor],
+                        ) -> torch.Tensor:
         # TODO: or move this to data prepare?
         find_distances(batch_data)
         output_tensors = self.embedding_layer(batch_data=batch_data)
@@ -43,11 +65,11 @@ class ANI(nn.Module):
             output_tensors = self.activate_fn(layer(output_tensors))
         output_tensors = self.readout_layer(output_tensors).squeeze(2)
         symbol_mask = batch_data['atomic_number'] < 0.5
-        output_tensors.masked_fill(mask=symbol_mask, value=torch.tensor(0., device=batch_data['coordinate'].device))
+        output_tensors.masked_fill_(mask=symbol_mask, value=0.)
         return output_tensors
-    
-    
-class TensorMessagePassingNet(nn.Module):
+
+
+class TensorMessagePassingNet(AtomicModule):
 
     def __init__(self,
                  embedding_layer : EmbeddingLayer,
@@ -76,9 +98,9 @@ class TensorMessagePassingNet(nn.Module):
         self.readout_layer = ReadoutLayer(n_dim=hidden_nodes[-1],
                                           target_way=target_way)
 
-    def forward(self,
-                batch_data : Dict[str, torch.Tensor],
-                ) -> Dict[int, torch.Tensor]:
+    def get_site_energy(self,
+                        batch_data : Dict[str, torch.Tensor],
+                        ) -> Dict[int, torch.Tensor]:
         # TODO: or move this to data prepare?
         find_distances(batch_data)
         output_tensors = {0: self.embedding_layer(batch_data=batch_data)}
@@ -87,4 +109,4 @@ class TensorMessagePassingNet(nn.Module):
                                    batch_data=batch_data)
         output_tensors = self.readout_layer(output_tensors,
                                             atomic_number=batch_data['atomic_number'])
-        return output_tensors
+        return output_tensors[0]

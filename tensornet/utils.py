@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import itertools
 from einops import rearrange, reduce, repeat
-from typing import Iterable, Optional, Dict
+from typing import Iterable, Optional, Dict, List
 
 
 def setup_seed(seed):
@@ -62,7 +62,7 @@ def find_distances(batch_data : Dict[str, torch.Tensor],
     Elements in batch_data:
         coordinate (torch.Tensor): coordinate of atoms [n_batch, n_atoms, n_dim]  (float)
         neighbor (torch.Tensor): neighbor of atoms [n_batch, n_atoms, n_neigh]    (int)
-        mask (torch.Tensor): mask of atoms [n_batch, n_atoms, n_neigh]            (int)
+        mask (torch.Tensor): mask of atoms [n_batch, n_atoms, n_neigh]            (bool)
         offset (torch.Tensor): offset of cells [n_batch, n_atoms, n_neigh, n_dim] (int)
 
     Returns:
@@ -79,17 +79,18 @@ def find_distances(batch_data : Dict[str, torch.Tensor],
         # ri = repeat(coordinate, 'b i d -> b i j d', j=n_neigh)
         # rj = repeat(coordinate, 'b j d -> b i j d', i=n_atoms).gather(2, repeat(neighbor, 'b i j -> b i j d', d=n_dim))
 
-        idx_m = torch.arange(n_batch, device=coordinate.device)[:, None, None]
+        idx_m = torch.arange(n_batch, device=coordinate.device, dtype=torch.long)[:, None, None]
         ri = coordinate[:, :, None, :]
         rj = coordinate[idx_m, neighbor]
         if offset is not None:
             rj += offset
-        distances = rj - ri
-        mask = torch.unsqueeze(mask < 0.5, dim=-1)
-        distances = distances.masked_fill(mask=mask, value=torch.tensor(0., device=coordinate.device))
-        batch_data['rij'] = distances
+        rij = rj - ri
+        rij.masked_fill_(mask=mask[..., None], value=0.)
+        batch_data['rij'] = rij
     if 'dij' not in batch_data:
-        batch_data['dij'] = torch.norm(batch_data['rij'], dim=-1)
+        dij = torch.norm(batch_data['rij'], dim=-1)
+        dij.masked_fill_(mask=mask, value=0.)
+        batch_data['dij'] = dij
     return None
 
 
@@ -118,3 +119,24 @@ def translate_energy(frames):
     for atoms in frames:
         atoms.info['energy'] -= mean * len(atoms)
     return frames
+
+
+def get_loss(batch_data : Dict[str, torch.Tensor], 
+             weight     : List[int]=[1.0, 1.0, 1.0], 
+             verbose    : bool=False):
+    w_energy, w_forces, w_stress = weight
+    n_atoms = torch.sum(batch_data['n_atoms'])
+    loss = 0.
+    if w_energy > 0.:
+        energy_loss = torch.sum((batch_data['energy_p'] - batch_data['energy_t']) ** 2) / n_atoms
+        loss += w_energy * energy_loss
+    if w_forces > 0.:
+        forces_loss = torch.sum((batch_data['forces_p'] - batch_data['forces_t']) ** 2) / (3 * n_atoms)
+        loss += w_forces * forces_loss
+    if verbose:
+        return loss, energy_loss, forces_loss
+    return loss
+
+
+class EnvPara:
+    FLOAT_PRECISION = torch.float
