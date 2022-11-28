@@ -81,5 +81,5 @@ def _collate_atoms(data):
     return batch
 
 
-def convert_frames(frames, cutoff):
-    return _collate_atoms([get_dict(atoms, cutoff) for atoms in frames])
+def convert_frames(frames, cutoff, device='cpu'):
+    return _collate_atoms([get_dict(atoms, cutoff, device) for atoms in frames])

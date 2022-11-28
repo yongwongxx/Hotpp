@@ -20,8 +20,9 @@ def expand_para(para: int or List, n: int):
 
 class AtomicModule(nn.Module):
     def forward(self, 
-                batch_data  : Dict[str, torch.Tensor],
-                properties  : List[str]=['energy'],
+                batch_data   : Dict[str, torch.Tensor],
+                properties   : List[str]=['energy'],
+                create_graph : bool=True,
                 ) -> Dict[str, torch.Tensor]:
         if 'forces' in properties:
             batch_data['coordinate'].requires_grad_()
@@ -31,8 +32,7 @@ class AtomicModule(nn.Module):
         if 'forces' in properties:
             batch_data['forces_p'] = -torch.autograd.grad(site_energy.sum(),
                                                           batch_data['coordinate'],
-                                                          create_graph=True,
-                                                          retain_graph=True)[0]
+                                                          create_graph=create_graph)[0]
         return batch_data
 
     def get_site_energy(self):
@@ -96,7 +96,8 @@ class TensorMessagePassingNet(AtomicModule):
                                 input_dim=hidden_nodes[i],
                                 output_dim=hidden_nodes[i + 1]) for i in range(n_layers)])
         self.readout_layer = ReadoutLayer(n_dim=hidden_nodes[-1],
-                                          target_way=target_way)
+                                          target_way=target_way, 
+                                          activate_fn=activate_fn)
 
     def get_site_energy(self,
                         batch_data : Dict[str, torch.Tensor],

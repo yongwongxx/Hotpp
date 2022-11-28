@@ -1,3 +1,5 @@
+# TODO 
+# resnet
 import torch
 from torch import nn
 from typing import Dict, Callable, Optional, List
@@ -41,11 +43,13 @@ class TensorAggregateLayer(nn.Module):
         device = neighbor.device
         idx_m = torch.arange(n_batch, device=device)[:, None, None]
         find_distances(batch_data)
-        rij = batch_data['rij']
+        rij = batch_data['uij']
         dij = batch_data['dij']
         rbf_ij = self.radial_fn(dij) * self.cutoff_fn(dij)[..., None]  # [n_batch, n_atoms, n_neigh, n_rbf]
         input_tensor_dict = {}
         for in_way in input_tensors:
+            if in_way in output_tensors:
+                output_tensors[in_way] = input_tensors[in_way]
             input_tensor = input_tensors[in_way][idx_m, neighbor]
             mask = expand_to(batch_data['mask'], 4 + in_way)
             input_tensor_dict[in_way] = input_tensor.masked_fill(mask=mask, value=0.)
@@ -56,13 +60,13 @@ class TensorAggregateLayer(nn.Module):
                                                       range(self.max_r_way + 1)):
             if r_way not in filter_tensor_dict:
                 fn = self.rbf_mixing_list[r_way](rbf_ij)       # [n_batch, n_atoms, n_neigh, n_channel]
-                fn = fn * input_tensor_dict[0]                 # [n_batch, n_atoms, n_neigh, n_channel]
+                # TODO: WHY!!!!!!!!!! CAO!
+                # fn = fn * input_tensor_dict[0]                 # [n_batch, n_atoms, n_neigh, n_channel]
                 rij_tensor = multi_outer_product(rij, r_way)   # [n_batch, n_atoms, n_neigh, n_dim, n_dim, ...]
                 filter_tensor = rij_tensor.unsqueeze(3) * expand_to(fn, n_dim=r_way + 4)
                 filter_tensor_dict[r_way] = filter_tensor      # [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]
             filter_tensor = filter_tensor_dict[r_way]          # [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]
             input_tensor  = input_tensor_dict[in_way]
-
             # filter_tensor: [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]   
             #                with  (r_way) n_dim
             # input_tensor:  [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]  
@@ -94,13 +98,10 @@ class TensorAggregateLayer(nn.Module):
             # output_tensor = oe.contract(input_tensor, input_subscripts, filter_tensor, filter_subscripts, output_subscripts)
 
             if output_tensors[out_way] is None:
-                output_tensors[out_way]  = output_tensor
+                output_tensors[out_way] = output_tensor
             else:
-                output_tensors[out_way] += output_tensor 
-            # if out_way == 1:
-            #     print(f"rway\n:{r_way}\nin_way:{in_way}\nout_way:\n{out_way}\n"
-            #           f"filter:\n{filter_tensor}\ninput:\n{input_tensor}\noutput:\n{output_tensor}")
-            
+                output_tensors[out_way] = output_tensor + output_tensors[out_way]
+
         return output_tensors
 
 
@@ -138,21 +139,23 @@ class NonLinearLayer(nn.Module):
         self.activate_fn = activate_fn
         # TODO: how to initialize parameters?
         self.weights = nn.Parameter(torch.ones(max_in_way + 1))
-        self.bias = nn.Parameter(torch.ones(max_in_way + 1))
+        self.bias = nn.Parameter(torch.zeros(max_in_way + 1))
 
     def forward(self,
                 input_tensors: torch.Tensor,
                 ) -> torch.Tensor:
+        #output_tensors = {way: tensor for way, tensor in input_tensors.items()}
         output_tensors = {}
         for way in input_tensors:
             if way == 0:
                 output_tensor = self.activate_fn(self.weights[way] * input_tensors[way] + self.bias[way])
             else:
-                norm = torch.linalg.norm(input_tensors[way], dim=tuple(range(3, 3 + way)), keepdim=True)
-                #print(f'way:\n{way}\norigin:\n{input_tensors[way]}norm:{norm}')
-                factor = self.activate_fn(self.weights[way] * norm + self.bias[way])
-                #print(factor)s
-                output_tensor = factor * input_tensors[way]
+                # output_tensor = input_tensors[way]
+                # norm = torch.linalg.norm(input_tensors[way], dim=tuple(range(3, 3 + way)), keepdim=True)
+                norm = torch.sum(input_tensors[way] ** 2, dim=tuple(range(3, 3 + way)), keepdim=True)
+                # use tanh to confine factor between [-1, 1]
+                factor = torch.tanh(self.weights[way] * norm + self.bias[way])
+                output_tensor = (factor + 1) * input_tensors[way]
             output_tensors[way] = output_tensor
         return output_tensors
 

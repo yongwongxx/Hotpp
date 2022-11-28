@@ -85,12 +85,12 @@ def find_distances(batch_data : Dict[str, torch.Tensor],
         if offset is not None:
             rj += offset
         rij = rj - ri
-        rij.masked_fill_(mask=mask[..., None], value=0.)
-        batch_data['rij'] = rij
-    if 'dij' not in batch_data:
-        dij = torch.norm(batch_data['rij'], dim=-1)
-        dij.masked_fill_(mask=mask, value=0.)
-        batch_data['dij'] = dij
+        dij = torch.sqrt(torch.sum(rij ** 2, dim=-1) + 1e-8)
+        norm = dij.masked_fill(mask=mask, value=1.)
+        uij = rij / norm.unsqueeze(-1)
+        batch_data['rij'] = rij.masked_fill(mask=mask[..., None], value=0.)
+        batch_data['dij'] = dij.masked_fill(mask=mask, value=0.)
+        batch_data['uij'] = uij.masked_fill(mask=mask[..., None], value=0.)
     return None
 
 
@@ -140,3 +140,26 @@ def get_loss(batch_data : Dict[str, torch.Tensor],
 
 class EnvPara:
     FLOAT_PRECISION = torch.float
+
+
+# Steal from our good brother BingqingCheng. Is there a problem in license?
+def get_default_acsf_hyperparameters(rmin, cutoff):
+    etas, rss = [], []
+    N = int((cutoff - rmin) * 3)
+    index = np.arange(N + 1, dtype=float)
+    shift_array = cutoff * (1. / N) ** (index / (len(index) - 1))
+    eta_array = 1. / shift_array ** 2.
+
+    for eta in eta_array:
+        # G2 with no shift
+        if 3 * np.sqrt(1 / eta) > rmin:
+            etas.append(eta)
+            rss.append(0.)
+
+    for i in range(len(shift_array)-1):
+        # G2 with shift
+        eta = 1./((shift_array[N - i] - shift_array[N - i - 1])**2)
+        if shift_array[N - i] + 3 * np.sqrt(1 / eta) > rmin:
+            etas.append(eta)
+            rss.append(shift_array[N-i])
+    return etas, rss

@@ -38,7 +38,7 @@ class SmoothCosineCutoff(CutoffLayer):
                 ) -> torch.Tensor:
         phase = (distances.clamp(min=self.cutoff_smooth, max=self.cutoff) - self.cutoff_smooth)/\
                  (self.cutoff - self.cutoff_smooth) * np.pi
-        cutoffs = 0.5 * (torch.cos(phase) + 1.0) / (distances + 0.01)
+        cutoffs = 0.5 * (torch.cos(phase) + 1.0)
         return cutoffs
 
 
