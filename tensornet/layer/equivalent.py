@@ -1,12 +1,14 @@
 # TODO 
 # resnet
+# Now segment_coo have some bug in getting second-order derivative
+# https://github.com/rusty1s/pytorch_scatter/issues/299
+# from torch_scatter import segment_coo
+
 import torch
 from torch import nn
-from typing import Dict, Callable, Optional, List
-from tensornet.utils import way_combination, expand_to, multi_outer_product, find_distances
-from tensornet.layer.radial import RadialLayer, ChebyshevPoly
-from tensornet.layer.cutoff import CutoffLayer
-import opt_einsum as oe
+from typing import Dict, Callable
+from .base import RadialLayer, CutoffLayer
+from ..utils import find_distances, expand_to, way_combination, multi_outer_product, _scatter_add
 
 
 # input_tensors be like:
@@ -16,6 +18,11 @@ import opt_einsum as oe
 #   .....
 # coordinate: [n_batch, n_atoms, n_dim]
 
+__all__ = ["TensorAggregateLayer",
+           "SelfInteractionLayer",
+           "NonLinearLayer",
+           "SOnEquivalentLayer",
+           ]
 
 class TensorAggregateLayer(nn.Module):
     def __init__(self, 
@@ -33,75 +40,49 @@ class TensorAggregateLayer(nn.Module):
         self.rbf_mixing_list = nn.ModuleList([
             nn.Linear(radial_fn.n_max, n_channel, bias=False) for i in range(max_r_way + 1)])
 
-    def forward(self, 
+    def forward(self,
                 input_tensors : Dict[int, torch.Tensor],
-                batch_data    : Dict[str, torch.Tensor],
+                batch_data    : Dict[int, torch.Tensor],
                 ) -> Dict[int, torch.Tensor]:
+
         output_tensors = {way: None for way in range(self.max_out_way + 1)}
-        neighbor = batch_data['neighbor']
-        n_batch = neighbor.shape[0]
-        device = neighbor.device
-        idx_m = torch.arange(n_batch, device=device)[:, None, None]
-        find_distances(batch_data)
-        rij = batch_data['uij']
-        dij = batch_data['dij']
-        rbf_ij = self.radial_fn(dij) * self.cutoff_fn(dij)[..., None]  # [n_batch, n_atoms, n_neigh, n_rbf]
-        input_tensor_dict = {}
-        for in_way in input_tensors:
-            if in_way in output_tensors:
-                output_tensors[in_way] = input_tensors[in_way]
-            input_tensor = input_tensors[in_way][idx_m, neighbor]
-            mask = expand_to(batch_data['mask'], 4 + in_way)
-            input_tensor_dict[in_way] = input_tensor.masked_fill(mask=mask, value=0.)
+        idx_i, idx_j = batch_data['edge_index']
+        _, dij, uij = find_distances(batch_data)
+        rbf_ij = self.radial_fn(dij) * self.cutoff_fn(dij)[..., None]  # [n_edge, n_rbf]
 
         filter_tensor_dict = {}
         for out_way, in_way, r_way in way_combination(range(self.max_out_way + 1), 
                                                       input_tensors.keys(), 
                                                       range(self.max_r_way + 1)):
             if r_way not in filter_tensor_dict:
-                fn = self.rbf_mixing_list[r_way](rbf_ij)       # [n_batch, n_atoms, n_neigh, n_channel]
+                fn = self.rbf_mixing_list[r_way](rbf_ij)          # [n_edge, n_channel]
                 # TODO: WHY!!!!!!!!!! CAO!
-                # fn = fn * input_tensor_dict[0]                 # [n_batch, n_atoms, n_neigh, n_channel]
-                rij_tensor = multi_outer_product(rij, r_way)   # [n_batch, n_atoms, n_neigh, n_dim, n_dim, ...]
-                filter_tensor = rij_tensor.unsqueeze(3) * expand_to(fn, n_dim=r_way + 4)
-                filter_tensor_dict[r_way] = filter_tensor      # [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]
-            filter_tensor = filter_tensor_dict[r_way]          # [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]
-            input_tensor  = input_tensor_dict[in_way]
-            # filter_tensor: [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]   
-            #                with  (r_way) n_dim
-            # input_tensor:  [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...]  
-            #                with (in_way) n_dim
-
+                # fn = fn * input_tensor_dict[0]                  # [n_edge, n_channel]
+                moment_tensor = multi_outer_product(uij, r_way)   # [n_edge, n_dim, ...]
+                filter_tensor = moment_tensor.unsqueeze(1) * expand_to(fn, n_dim=r_way + 2)
+                filter_tensor_dict[r_way] = filter_tensor         # [n_edge, n_channel, n_dim, n_dim, ...]
+            filter_tensor = filter_tensor_dict[r_way]             # [n_edge, n_channel, n_dim, n_dim, ...]
+            input_tensor = input_tensors[in_way][idx_j]           # [n_edge, n_channel, n_dim, n_dim, ...]
             coupling_way = (in_way + r_way - out_way) // 2
-
             # # method 1 
-            n_way = in_way + r_way - coupling_way + 4
+            n_way = in_way + r_way - coupling_way + 2
             input_tensor  = expand_to(input_tensor, n_way, dim=-1)
-            filter_tensor = expand_to(filter_tensor, n_way, dim=4)
-
-            # input_tensor:  [n_batch, n_atoms, n_neigh, n_channel, n_dim, n_dim, ...,     1] 
-            # filter_tensor: [n_batch, n_atoms, n_neigh, n_channel,     1,     1, ..., n_dim]  
+            filter_tensor = expand_to(filter_tensor, n_way, dim=2)
+            output_tensor = input_tensor * filter_tensor
+            # input_tensor:  [n_edge, n_channel, n_dim, n_dim, ...,     1] 
+            # filter_tensor: [n_edge, n_channel,     1,     1, ..., n_dim]  
             # with (in_way + r_way - coupling_way) dim after n_channel
-            # We should sum up 2 (n_neigh) and (coupling_way) n_dim
-            sum_axis = [2] + [i for i in range(in_way - coupling_way + 4, in_way + 4)]
-            output_tensor = torch.sum(input_tensor * filter_tensor, dim=sum_axis)
-
-            # method 2
-            # Why opt_einsum slower?
-            # input_indices = [i for i in range(4, 4 + in_way - coupling_way)]
-            # coupling_indices = [i for i in range(4 + in_way - coupling_way, 4 + in_way)]
-            # filter_indices = [i for i in range(4 + in_way, 4 + in_way + r_way - coupling_way)]
-
-            # input_subscripts  = [0, 1, 2, 3] + input_indices + coupling_indices
-            # filter_subscripts = [0, 1, 2, 3] + coupling_indices + filter_indices
-            # output_subscripts = [0, 1, 2, 3] + input_indices + filter_indices
-            # output_tensor = oe.contract(input_tensor, input_subscripts, filter_tensor, filter_subscripts, output_subscripts)
+            # We should sum up (coupling_way) n_dim
+            if coupling_way > 0:
+                sum_axis = [i for i in range(in_way - coupling_way + 2, in_way + 2)]
+                output_tensor = torch.sum(output_tensor, dim=sum_axis)
+            output_tensor = _scatter_add(output_tensor, idx_i, dim_size=batch_data.num_nodes)
+            # output_tensor = segment_coo(output_tensor, idx_i, dim_size=batch_data.num_nodes, reduce="sum")
 
             if output_tensors[out_way] is None:
                 output_tensors[out_way] = output_tensor
             else:
-                output_tensors[out_way] = output_tensor + output_tensors[out_way]
-
+                output_tensors[out_way] += output_tensor
         return output_tensors
 
 
@@ -123,9 +104,9 @@ class SelfInteractionLayer(nn.Module):
         output_tensors = {}
         for way in input_tensors:
             # swap channel axis and the last dim axis
-            input_tensor = torch.transpose(input_tensors[way], 2, -1)
+            input_tensor = torch.transpose(input_tensors[way], 1, -1)
             output_tensor = self.linear_interact_list[way](input_tensor)
-            output_tensors[way] = torch.transpose(output_tensor, 2, -1)
+            output_tensors[way] = torch.transpose(output_tensor, 1, -1)
         return output_tensors
 
 
@@ -138,8 +119,8 @@ class NonLinearLayer(nn.Module):
         super().__init__()
         self.activate_fn = activate_fn
         # TODO: how to initialize parameters?
-        self.weights = nn.Parameter(torch.ones(max_in_way + 1))
-        self.bias = nn.Parameter(torch.zeros(max_in_way + 1))
+        self.weights = nn.Parameter(torch.ones(max_in_way + 1, requires_grad=True))
+        self.bias = nn.Parameter(torch.zeros(max_in_way + 1, requires_grad=True))
 
     def forward(self,
                 input_tensors: torch.Tensor,
@@ -152,7 +133,7 @@ class NonLinearLayer(nn.Module):
             else:
                 # output_tensor = input_tensors[way]
                 # norm = torch.linalg.norm(input_tensors[way], dim=tuple(range(3, 3 + way)), keepdim=True)
-                norm = torch.sum(input_tensors[way] ** 2, dim=tuple(range(3, 3 + way)), keepdim=True)
+                norm = torch.sum(input_tensors[way] ** 2, dim=tuple(range(2, 2 + way)), keepdim=True)
                 # use tanh to confine factor between [-1, 1]
                 factor = torch.tanh(self.weights[way] * norm + self.bias[way])
                 output_tensor = (factor + 1) * input_tensors[way]
@@ -185,11 +166,30 @@ class SOnEquivalentLayer(nn.Module):
                                          max_in_way=max_out_way)
 
     def forward(self,
-                input_tensors : Dict[int, torch.Tensor],
-                batch_data    : Dict[str, torch.Tensor],
+                batch_data : Dict[int, torch.Tensor],
                 ) -> Dict[int, torch.Tensor]:
-        output_tensors = self.tensor_aggregate(input_tensors=input_tensors, 
-                                               batch_data=batch_data)
-        output_tensors = self.self_interact(output_tensors)
+        batch_data['node_attr'] = self.propagate(batch_data['node_attr'], batch_data)
+        return batch_data
+
+    # TODO: sparse version
+    def message_and_aggregate(self,
+                              input_tensors : Dict[int, torch.Tensor],
+                              batch_data    : Dict[int, torch.Tensor],
+                              ) -> Dict[int, torch.Tensor]:
+        return self.tensor_aggregate(input_tensors=input_tensors, 
+                                     batch_data=batch_data)
+
+    def update(self,
+               input_tensors : Dict[int, torch.Tensor],
+               ) -> Dict[int, torch.Tensor]:
+        output_tensors = self.self_interact(input_tensors)
         output_tensors = self.non_linear(output_tensors)
+        return output_tensors
+
+    def propagate(self,
+                  input_tensors : Dict[int, torch.Tensor],
+                  batch_data : Dict[int, torch.Tensor],
+                  ) -> Dict[int, torch.Tensor]:
+        output_tensors = self.message_and_aggregate(input_tensors, batch_data)
+        output_tensors = self.update(output_tensors)
         return output_tensors

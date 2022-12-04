@@ -1,16 +1,11 @@
 import torch
-from torch import nn
 import numpy as np
+from .base import RadialLayer
 
 
-class RadialLayer(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        
-    def forward(self,
-                distances: torch.Tensor,
-                ) -> torch.Tensor:
-        raise NotImplementedError()
+__all__ = ["ChebyshevPoly",
+           "BesselPoly",
+           ]
 
 
 class ChebyshevPoly(RadialLayer):
@@ -50,6 +45,6 @@ class BesselPoly(RadialLayer):
                 distances: torch.Tensor,
                 ) -> torch.Tensor:
         out = torch.sin(distances.unsqueeze(-1) * self.freqs)
-        norm = torch.where(distances == 0, torch.tensor(1.0, device=distances.device), distances)
+        norm = torch.where(distances == 0, 1.0, distances)
         out = out / norm.unsqueeze(-1)
         return out

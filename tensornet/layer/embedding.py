@@ -1,39 +1,22 @@
 import torch
 from torch import nn
-from einops import rearrange
 from typing import List, Optional, Dict
-from .cutoff import CutoffLayer
-from ..utils import find_distances
+from .base import CutoffLayer, EmbeddingLayer
+from ..utils import find_distances, _scatter_add
+
+__all__ = ["AtomicOneHot",
+           "AtomicNumber",
+           "AtomicEmbedding",
+           "BehlerG1",
+           ]
 
 
-class EmbeddingLayer(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-
-    def forward(self,
-                coordinate    : torch.Tensor,
-                cell          : torch.Tensor,
-                atomic_number : torch.Tensor,
-                ) -> torch.Tensor:
-        """
-
-        Args:
-            coordinate (torch.Tensor): coordinate of atoms [n_batch, n_atoms, n_dim]
-            cell (torch.Tensor): cell of atoms [n_batch, n_atoms, n_dim, n_dim]
-            atomic_number (torch.Tensor): atomic numbers of atoms [n_batch, n_atoms]
-
-        Returns:
-            torch.Tensor: Embedding of atoms [n_batch, n_atoms, n_channel]
-        """
-        raise NotImplementedError(f"{self.__class__.__name__} must have 'forward'!")
-
-
-class OneHot(nn.Module):
+class AtomicOneHot(EmbeddingLayer):
     def __init__(self, 
                  atomic_number : List[int], 
                  trainable     : bool=False
                  ) -> None:
-        super(OneHot, self).__init__()
+        super().__init__()
         max_atomic_number = max(atomic_number)
         n_atomic_number = len(atomic_number)
         weights = torch.zeros(max_atomic_number + 1, n_atomic_number)
@@ -46,17 +29,17 @@ class OneHot(nn.Module):
         self.n_channel = n_atomic_number
 
     def forward(self, 
-                atomic_number : torch.Tensor
+                batch_data : Dict[str, torch.Tensor],
                 ) -> torch.Tensor:
-        return self.z_weights(atomic_number)
+        return self.z_weights(batch_data['atomic_number'])
 
 
-class AtomicNumber(nn.Module):
+class AtomicNumber(EmbeddingLayer):
     def __init__(self, 
                  atomic_number : List[int], 
                  trainable     : bool=False
                  ) -> None:
-        super(AtomicNumber, self).__init__()
+        super().__init__()
         max_atomic_number = max(atomic_number)
         weights = torch.arange(max_atomic_number + 1)[:, None].float()
         self.z_weights = nn.Embedding(max_atomic_number + 1, 1)
@@ -66,29 +49,46 @@ class AtomicNumber(nn.Module):
         self.n_channel = 1
 
     def forward(self, 
-                atomic_number : torch.Tensor
+                batch_data : Dict[str, torch.Tensor],
                 ) -> torch.Tensor:
-        return self.z_weights(atomic_number)
+        return self.z_weights(batch_data['atomic_number'])
+
+
+class AtomicEmbedding(EmbeddingLayer):
+    def __init__(self, 
+                 atomic_number : List[int], 
+                 n_channel     : int,
+                 ) -> None:
+        super().__init__()
+        max_atomic_number = max(atomic_number)
+        self.z_weights = nn.Embedding(max_atomic_number + 1, n_channel)
+        self.n_channel = n_channel
+
+    def forward(self, 
+                batch_data : Dict[str, torch.Tensor],
+                ) -> torch.Tensor:
+        return self.z_weights(batch_data['atomic_number'])
 
 
 class BehlerG1(EmbeddingLayer):
+    """
+    wACSF—Weighted atom-centered symmetry functions as descriptors in machine learning potentials
+    J. Chem. Phys. 148, 241709 (2018)
+    https://doi.org/10.1063/1.5019667
+    """
     def __init__(self, 
                  n_radial      : int, 
                  cut_fn        : CutoffLayer, 
-                 atomic_fn     : EmbeddingLayer,
                  etas          : Optional[List[float]]=None, 
                  rss           : Optional[List[float]]=None,
                  trainable     : bool=False,
                  ) -> None:
-        super(BehlerG1, self).__init__()
+        super().__init__()
         self.cut_fn = cut_fn
-        self.atomic_embedding = atomic_fn
-
         if rss is None or etas is None:
             cutoff = cut_fn.cutoff.numpy()
             rss = torch.linspace(0.3, cutoff - 0.3, n_radial)
             etas = 0.5 * torch.ones_like(rss) / (rss[1] - rss[0]) ** 2
-
         assert (len(etas) == n_radial) and (len(rss) == n_radial), "Lengths of 'etas' or 'rss' error"
 
         if trainable:
@@ -98,28 +98,17 @@ class BehlerG1(EmbeddingLayer):
         else:
             self.register_buffer("etas", etas)
             self.register_buffer("rss", rss)
-        
-        self.n_channel = n_radial * self.atomic_embedding.n_channel
+        self.n_channel = n_radial
 
     def forward(self,
                 batch_data  : Dict[str, torch.Tensor],
                 ) -> torch.Tensor:
-        atomic_number = batch_data['atomic_number']
-        neighbor = batch_data['neighbor']
-        n_batch, n_atoms = atomic_number.shape
-        device = atomic_number.device
-
-        z_ratio = self.atomic_embedding(atomic_number)
-        idx_m = torch.arange(n_batch, device=device)[:, None, None]
-        z_ij = z_ratio[idx_m, neighbor]
-
-        find_distances(batch_data)
-        d_ij = batch_data['dij'].unsqueeze(-1)
-        x = -self.etas * (d_ij - self.rss) ** 2
-        cut = self.cut_fn(d_ij)
-        f = torch.exp(x) * cut
-        # f: (n_batch, n_atoms, n_neigh, n_channel)
-        # z_ij: (n_batch, n_atoms, n_neigh, n_embedded)
-        f = torch.sum(f.unsqueeze(-1) * z_ij.unsqueeze(-2), dim=2).view(n_batch, n_atoms, -1)
-        # f = rearrange(torch.einsum('b i j c, b i j e -> b i c e', f, z_ij), 'b i c e -> b i (c e)')
+        n_atoms = batch_data['atomic_number'].shape[0]
+        idx_i, idx_j = batch_data['edge_index']
+        _, dij, _ = find_distances(batch_data)
+        zij = batch_data['atomic_number'][idx_j].unsqueeze(-1)                      # [n_edge, 1]
+        dij = dij.unsqueeze(-1)
+        f = torch.exp(-self.etas * (dij - self.rss) ** 2) * self.cut_fn(dij) * zij  # [n_edge, n_channel]
+        f = _scatter_add(f, idx_i, dim_size=n_atoms)
+        # f = segment_coo(f, idx_i, dim_size=n_atoms, reduce="sum").view(n_atoms, -1)
         return f

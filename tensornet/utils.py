@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import itertools
-from einops import rearrange, reduce, repeat
+import torch.nn.functional as F
 from typing import Iterable, Optional, Dict, List
 
 
@@ -57,41 +57,14 @@ def multi_outer_product(v: torch.Tensor,
 
 def find_distances(batch_data : Dict[str, torch.Tensor],
                    ) -> None:
-    """get distances between atoms
-
-    Elements in batch_data:
-        coordinate (torch.Tensor): coordinate of atoms [n_batch, n_atoms, n_dim]  (float)
-        neighbor (torch.Tensor): neighbor of atoms [n_batch, n_atoms, n_neigh]    (int)
-        mask (torch.Tensor): mask of atoms [n_batch, n_atoms, n_neigh]            (bool)
-        offset (torch.Tensor): offset of cells [n_batch, n_atoms, n_neigh, n_dim] (int)
-
-    Returns:
-        torch.Tensor: distances [n_batch, n_atoms, n_neigh, n_dim]
-    """
     if 'rij' not in batch_data:
-        coordinate = batch_data['coordinate']
-        neighbor   = batch_data['neighbor']
-        mask       = batch_data['mask']
-        offset     = batch_data['offset']
-        n_batch = neighbor.shape[0]
-
-        # TODO: which is faster?
-        # ri = repeat(coordinate, 'b i d -> b i j d', j=n_neigh)
-        # rj = repeat(coordinate, 'b j d -> b i j d', i=n_atoms).gather(2, repeat(neighbor, 'b i j -> b i j d', d=n_dim))
-
-        idx_m = torch.arange(n_batch, device=coordinate.device, dtype=torch.long)[:, None, None]
-        ri = coordinate[:, :, None, :]
-        rj = coordinate[idx_m, neighbor]
-        if offset is not None:
-            rj += offset
-        rij = rj - ri
-        dij = torch.sqrt(torch.sum(rij ** 2, dim=-1) + 1e-8)
-        norm = dij.masked_fill(mask=mask, value=1.)
-        uij = rij / norm.unsqueeze(-1)
-        batch_data['rij'] = rij.masked_fill(mask=mask[..., None], value=0.)
-        batch_data['dij'] = dij.masked_fill(mask=mask, value=0.)
-        batch_data['uij'] = uij.masked_fill(mask=mask[..., None], value=0.)
-    return None
+        idx_i, idx_j = batch_data.edge_index
+        batch_data['rij'] = batch_data['coordinate'][idx_j] + batch_data['offset'] - batch_data['coordinate'][idx_i]
+    if 'dij' not in batch_data:
+        batch_data['dij'] = torch.norm(batch_data['rij'], dim=-1)
+    if 'uij' not in batch_data:
+        batch_data['uij'] = batch_data['rij'] / batch_data['dij'].unsqueeze(-1)
+    return batch_data['rij'], batch_data['dij'], batch_data['uij']
 
 
 def get_elements(frames):
@@ -125,13 +98,13 @@ def get_loss(batch_data : Dict[str, torch.Tensor],
              weight     : List[int]=[1.0, 1.0, 1.0], 
              verbose    : bool=False):
     w_energy, w_forces, w_stress = weight
-    n_atoms = torch.sum(batch_data['n_atoms'])
     loss = 0.
     if w_energy > 0.:
-        energy_loss = torch.sum((batch_data['energy_p'] - batch_data['energy_t']) ** 2) / n_atoms
+        energy_loss = F.mse_loss(batch_data['energy_p'] / batch_data['n_atoms'], 
+                                 batch_data['energy_t'] / batch_data['n_atoms'])
         loss += w_energy * energy_loss
     if w_forces > 0.:
-        forces_loss = torch.sum((batch_data['forces_p'] - batch_data['forces_t']) ** 2) / (3 * n_atoms)
+        forces_loss = F.mse_loss(batch_data['forces_p'], batch_data['forces_t'])
         loss += w_forces * forces_loss
     if verbose:
         return loss, energy_loss, forces_loss
@@ -163,3 +136,27 @@ def get_default_acsf_hyperparameters(rmin, cutoff):
             etas.append(eta)
             rss.append(shift_array[N-i])
     return etas, rss
+
+
+def expand_para(para: int or List, n: int):
+    assert isinstance(para, int) or isinstance(para, list)
+    if isinstance(para, int):
+        para = [para] * n
+    if isinstance(para, list):
+        assert len(para) == n
+    return para
+
+
+@torch.jit.script
+def _scatter_add(x        : torch.Tensor, 
+                 idx_i    : torch.Tensor, 
+                 dim_size : Optional[int]=None, 
+                 dim      : int = 0
+                 ) -> torch.Tensor:
+    shape = list(x.shape)
+    if dim_size is None:
+        dim_size = idx_i.max() + 1
+    shape[dim] = dim_size
+    tmp = torch.zeros(shape, dtype=x.dtype, device=x.device)
+    y = tmp.index_add(dim, idx_i, x)
+    return y

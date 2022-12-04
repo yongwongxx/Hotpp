@@ -1,18 +1,12 @@
 import torch
 from torch import nn
 import numpy as np
+from .base import CutoffLayer
 
-
-class CutoffLayer(nn.Module):
-    def __init__(self,
-                 cutoff : float=3.5,
-                 ) -> None:
-        super().__init__()
-        self.register_buffer("cutoff", torch.tensor(cutoff).float())
-        
-    def forward(self,
-                ):
-        raise NotImplementedError(f"{self.__class__.__name__} must have 'forward'!")
+__all__ = ["CosineCutoff",
+           "SmoothCosineCutoff",
+           "PolynomialCutoff",
+           ]
 
 
 class CosineCutoff(CutoffLayer):
