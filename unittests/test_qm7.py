@@ -21,7 +21,7 @@ class TestMolecule(unittest.TestCase):
         dim = 3
         self.R = special_ortho_group.rvs(dim=dim)
 
-        datapath = '../dataset/qm7.mat'
+        datapath = '../dataset/qm7/qm7b.mat'
         raw_data = loadmat(datapath)
         coordinate = raw_data['R'][0][:6]
         symbol = raw_data['Z'][0][:6]

@@ -12,11 +12,11 @@ from ..utils import find_distances, expand_to, way_combination, multi_outer_prod
 
 
 # input_tensors be like:
-#   0: [n_batch, n_atoms, n_channel]
-#   1: [n_batch, n_atoms, n_channel, n_dim]
-#   2: [n_batch, n_atoms, n_channel, n_dim, n_dim]
+#   0: [n_atoms, n_channel]
+#   1: [n_atoms, n_channel, n_dim]
+#   2: [n_atoms, n_channel, n_dim, n_dim]
 #   .....
-# coordinate: [n_batch, n_atoms, n_dim]
+# coordinate: [n_atoms, n_dim]
 
 __all__ = ["TensorAggregateLayer",
            "SelfInteractionLayer",

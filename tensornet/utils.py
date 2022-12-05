@@ -10,7 +10,7 @@ def setup_seed(seed):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     torch.backends.cudnn.deterministic = True
-    
+
 
 def way_combination(out_way : Iterable, 
                     in_way  : Iterable, 
@@ -160,3 +160,9 @@ def _scatter_add(x        : torch.Tensor,
     tmp = torch.zeros(shape, dtype=x.dtype, device=x.device)
     y = tmp.index_add(dim, idx_i, x)
     return y
+
+
+def progress_bar(i: int, n: int, interval: int=100):
+    if i % interval == 0:
+        ii = int(i / n * 100)
+        print(f"\r{ii}%[{'*' * ii}{'-' * (100 - ii)}]", end=' ')
