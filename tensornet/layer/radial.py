@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from .base import RadialLayer
+from torch import nn
 
 
 __all__ = ["ChebyshevPoly",
@@ -39,7 +40,8 @@ class BesselPoly(RadialLayer):
         super().__init__()
         self.n_max = n_max
         freqs = torch.arange(1, n_max + 1) * np.pi / r_max
-        self.register_buffer("freqs", freqs)
+        freqs.requires_grad_()
+        self.freqs = nn.Parameter(freqs)
 
     def forward(self, 
                 distances: torch.Tensor,

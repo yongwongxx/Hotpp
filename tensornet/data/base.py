@@ -58,3 +58,9 @@ class AtomsData(InMemoryDataset):
         for i in sorted(index, reverse=True):
             self.frames.pop(i)
             self.datalist.pop(i)
+
+
+class PtData(InMemoryDataset):
+    def __init__(self, name: str, device: str="cpu") -> None:
+        super().__init__()
+        self.data, self.slices = torch.load(name, map_location=device)

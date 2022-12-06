@@ -176,14 +176,21 @@ class SOnEquivalentLayer(nn.Module):
                               input_tensors : Dict[int, torch.Tensor],
                               batch_data    : Dict[int, torch.Tensor],
                               ) -> Dict[int, torch.Tensor]:
-        return self.tensor_aggregate(input_tensors=input_tensors, 
-                                     batch_data=batch_data)
+        output_tensors =  self.tensor_aggregate(input_tensors=input_tensors, 
+                                                batch_data=batch_data)
+        # resnet
+        for r_way in input_tensors.keys():
+            output_tensors[r_way] += input_tensors[r_way]
+        return output_tensors
 
     def update(self,
                input_tensors : Dict[int, torch.Tensor],
                ) -> Dict[int, torch.Tensor]:
         output_tensors = self.self_interact(input_tensors)
         output_tensors = self.non_linear(output_tensors)
+        # resnet
+        for r_way in input_tensors.keys():
+            output_tensors[r_way] += input_tensors[r_way]
         return output_tensors
 
     def propagate(self,

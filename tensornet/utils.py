@@ -1,8 +1,9 @@
+import sys
 import torch
 import numpy as np
 import itertools
 import torch.nn.functional as F
-from typing import Iterable, Optional, Dict, List
+from typing import Iterable, Optional, Dict, List, Callable
 
 
 def setup_seed(seed):
@@ -95,16 +96,17 @@ def translate_energy(frames):
 
 
 def get_loss(batch_data : Dict[str, torch.Tensor], 
-             weight     : List[int]=[1.0, 1.0, 1.0], 
-             verbose    : bool=False):
+             weight     : List[int]=[1.0, 1.0, 1.0],
+             verbose    : bool=False,
+             loss_fn    : Callable=F.mse_loss):
     w_energy, w_forces, w_stress = weight
     loss = 0.
     if w_energy > 0.:
-        energy_loss = F.mse_loss(batch_data['energy_p'] / batch_data['n_atoms'], 
-                                 batch_data['energy_t'] / batch_data['n_atoms'])
+        energy_loss = loss_fn(batch_data['energy_p'] / batch_data['n_atoms'], 
+                              batch_data['energy_t'] / batch_data['n_atoms'])
         loss += w_energy * energy_loss
     if w_forces > 0.:
-        forces_loss = F.mse_loss(batch_data['forces_p'], batch_data['forces_t'])
+        forces_loss = loss_fn(batch_data['forces_p'], batch_data['forces_t'])
         loss += w_forces * forces_loss
     if verbose:
         return loss, energy_loss, forces_loss
@@ -165,4 +167,4 @@ def _scatter_add(x        : torch.Tensor,
 def progress_bar(i: int, n: int, interval: int=100):
     if i % interval == 0:
         ii = int(i / n * 100)
-        print(f"\r{ii}%[{'*' * ii}{'-' * (100 - ii)}]", end=' ')
+        print(f"\r{ii}%[{'*' * ii}{'-' * (100 - ii)}]", end=' ', file=sys.stderr)
