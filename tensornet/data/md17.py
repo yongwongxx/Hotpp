@@ -28,7 +28,7 @@ class RevisedMD17(InMemoryDataset):
         self.device = device
         assert name in self.file_names
         super().__init__(root)
-        self.data, self.slices = torch.load(self.processed_paths[0])
+        self.data, self.slices = torch.load(self.processed_paths[0], map_location=device)
 
     @property
     def raw_dir(self) -> str:

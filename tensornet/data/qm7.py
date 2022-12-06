@@ -11,7 +11,7 @@ class QM7b(InMemoryDataset):
         self.cutoff = cutoff
         self.device = device 
         super().__init__(root)
-        self.data, self.slices = torch.load(self.processed_paths[0])
+        self.data, self.slices = torch.load(self.processed_paths[0], map_location=device)
 
     @property
     def raw_dir(self) -> str:
