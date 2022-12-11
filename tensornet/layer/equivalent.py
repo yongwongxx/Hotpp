@@ -31,6 +31,7 @@ class TensorAggregateLayer(nn.Module):
                  n_channel      : int,
                  max_out_way    : int=2, 
                  max_r_way      : int=2,
+                 norm_factor    : float=1.,
                  ) -> None:
         super().__init__()
         self.max_out_way = max_out_way
@@ -39,6 +40,7 @@ class TensorAggregateLayer(nn.Module):
         self.cutoff_fn = cutoff_fn
         self.rbf_mixing_list = nn.ModuleList([
             nn.Linear(radial_fn.n_max, n_channel, bias=False) for i in range(max_r_way + 1)])
+        self.register_buffer("norm_factor", torch.tensor(norm_factor).float())
 
     def forward(self,
                 input_tensors : Dict[int, torch.Tensor],
@@ -76,7 +78,7 @@ class TensorAggregateLayer(nn.Module):
             if coupling_way > 0:
                 sum_axis = [i for i in range(in_way - coupling_way + 2, in_way + 2)]
                 output_tensor = torch.sum(output_tensor, dim=sum_axis)
-            output_tensor = _scatter_add(output_tensor, idx_i, dim_size=batch_data.num_nodes)
+            output_tensor = _scatter_add(output_tensor, idx_i, dim_size=batch_data.num_nodes) / self.norm_factor
             # output_tensor = segment_coo(output_tensor, idx_i, dim_size=batch_data.num_nodes, reduce="sum")
 
             if output_tensors[out_way] is None:
@@ -150,13 +152,15 @@ class SOnEquivalentLayer(nn.Module):
                  max_out_way    : int,
                  input_dim      : int,
                  output_dim     : int,
+                 norm_factor    : float=1.0,
                  ) -> None:
         super().__init__()
         self.tensor_aggregate = TensorAggregateLayer(radial_fn=radial_fn,
                                                      cutoff_fn=cutoff_fn,
                                                      n_channel=input_dim,
                                                      max_out_way=max_out_way, 
-                                                     max_r_way=max_r_way)
+                                                     max_r_way=max_r_way,
+                                                     norm_factor=norm_factor,)
         # input for SelfInteractionLayer and NonLinearLayer is the output of TensorAggregateLayer
         # so the max_in_way should equal to max_out_way of TensorAggregateLayer
         self.self_interact = SelfInteractionLayer(input_dim=input_dim, 

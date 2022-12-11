@@ -7,6 +7,7 @@ from ase.neighborlist import neighbor_list
 
 __all__ = ["atoms_to_graph",
            "AtomsData",
+           "PtData",
            ]
 
 def atoms_to_graph(atoms, cutoff, device='cpu'):

@@ -21,8 +21,11 @@ class MiaoNet(AtomicModule):
                  output_dim      : int or List,
                  activate_fn     : Callable,
                  target_way      : List[int]=[0],
+                 mean            : float=0.,
+                 std             : float=1.,
+                 norm_factor     : float=1.,
                  ):
-        super().__init__()
+        super().__init__(mean=mean, std=std)
         self.embedding_layer = embedding_layer
         max_r_way = expand_para(max_r_way, n_layers)
         max_out_way = expand_para(max_out_way, n_layers)
@@ -34,7 +37,8 @@ class MiaoNet(AtomicModule):
                                 max_r_way=max_r_way[i],
                                 max_out_way=max_out_way[i],
                                 input_dim=hidden_nodes[i],
-                                output_dim=hidden_nodes[i + 1]) for i in range(n_layers)])
+                                output_dim=hidden_nodes[i + 1],
+                                norm_factor=norm_factor) for i in range(n_layers)])
         self.readout_layer = ReadoutLayer(n_dim=hidden_nodes[-1],
                                           target_way=target_way, 
                                           activate_fn=activate_fn)

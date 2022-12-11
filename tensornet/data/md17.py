@@ -55,7 +55,7 @@ class RevisedMD17(InMemoryDataset):
             atoms = Atoms(symbols=raw_data["nuclear_charges"],
                         positions=raw_data["coords"][i],
                         info={"energy": raw_data["energies"][i],
-                                "forces": raw_data["forces"][i]}
+                              "forces": raw_data["forces"][i]}
                         )
             data = atoms_to_graph(atoms, self.cutoff, self.device)
             data_list.append(data)

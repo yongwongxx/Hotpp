@@ -5,6 +5,15 @@ from tensornet.utils import _scatter_add
 
 
 class AtomicModule(nn.Module):
+
+    def __init__(self, 
+                 mean  : float=0.,
+                 std   : float=1.,
+                 ) -> None:
+        super().__init__()
+        self.register_buffer("mean", torch.tensor(mean).float())
+        self.register_buffer("std", torch.tensor(std).float())
+
     def forward(self, 
                 batch_data   : Dict[str, torch.Tensor],
                 properties   : List[str]=['energy'],
@@ -12,7 +21,7 @@ class AtomicModule(nn.Module):
                 ) -> Dict[str, torch.Tensor]:
         if 'forces' in properties:
             batch_data['coordinate'].requires_grad_()
-        site_energy = self.get_site_energy(batch_data)
+        site_energy = self.get_site_energy(batch_data) * self.std + self.mean
         if 'site_energy' in properties:
             batch_data['site_energy_p'] = site_energy
         if 'energy' in properties:
