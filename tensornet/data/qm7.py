@@ -1,12 +1,11 @@
 import torch
-from torch_geometric.data import InMemoryDataset
 from scipy.io import loadmat
-from .base import atoms_to_graph
+from .base import AtomsData
 from ..utils import progress_bar
 from ase import Atoms
 
 
-class QM7b(InMemoryDataset):
+class QM7b(AtomsData):
     def __init__(self, root:str, cutoff:float=4.0, device:str="cpu") -> None:
         self.cutoff = cutoff
         self.device = device 
@@ -40,6 +39,6 @@ class QM7b(InMemoryDataset):
                           positions=raw_data["R"][i][:n_atoms],
                           info={"energy": raw_data["T"][0][i]}
                           )
-            data = atoms_to_graph(atoms, self.cutoff, self.device)
+            data = self.atoms_to_graph(atoms, self.cutoff, self.device)
             data_list.append(data)
         torch.save(self.collate(data_list), self.processed_paths[0])

@@ -1,13 +1,14 @@
 import os
 import numpy as np
 import torch
-from torch_geometric.data import InMemoryDataset
-from .base import atoms_to_graph
+from .base import AtomsData
 from ..utils import progress_bar
 from ase import Atoms
 
+__all__ = ["RevisedMD17"]
 
-class RevisedMD17(InMemoryDataset):
+
+class RevisedMD17(AtomsData):
 
     file_names = [
         "aspirin",
@@ -35,10 +36,6 @@ class RevisedMD17(InMemoryDataset):
         return os.path.join(self.root, "npz_data")
 
     @property
-    def processed_dir(self) -> str:
-        return os.path.join(self.root, f"processed_{self.cutoff:.2f}".replace(".", "_"))
-
-    @property
     def raw_file_names(self) -> str:
         return f"rmd17_{self.name}.npz"
 
@@ -57,7 +54,7 @@ class RevisedMD17(InMemoryDataset):
                         info={"energy": raw_data["energies"][i],
                               "forces": raw_data["forces"][i]}
                         )
-            data = atoms_to_graph(atoms, self.cutoff, self.device)
+            data = self.atoms_to_graph(atoms, self.cutoff, self.device)
             data_list.append(data)
         torch.save(self.collate(data_list), self.processed_paths[0])
 
