@@ -91,6 +91,8 @@ def train(model, optimizer, train_loader, test_loader, p_dict):
             if t2 < min_loss:
                 min_loss = t2
                 torch.save(model, 'model.pt')
+                torch.save(model.state_dict(), 'model_state_dict.pt')
+                torch.save(optimizer.state_dict(), 'optimizer_state_dict.pt')
             t = time.time()
 
 
@@ -104,6 +106,10 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
     log.info("Using seed {}".format(p_dict["seed"]))    
     p_dict['workDir'] = os.getcwd()
     dataset = get_dataset(p_dict)
+    trainset, testset = split_dataset(dataset, p_dict)
+    train_loader = DataLoader(trainset, batch_size=p_dict["Data"]["trainBatch"], shuffle=True)
+    test_loader = DataLoader(testset, batch_size=p_dict["Data"]["testBatch"], shuffle=False)
+
     mean = dataset.per_energy_mean.detach().cpu().numpy()
     std = dataset.forces_std.detach().cpu().numpy()
     n_neighbor = dataset.n_neighbor_mean
@@ -113,10 +119,10 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
     log.info(f"n_neighbor   : {n_neighbor}")
     log.info(f"all_elements : {elements}")
     model = get_model(p_dict, elements, mean, std, n_neighbor)
-    trainset, testset = split_dataset(dataset, p_dict)
-    train_loader = DataLoader(trainset, batch_size=p_dict["Data"]["trainBatch"], shuffle=True)
-    test_loader = DataLoader(testset, batch_size=p_dict["Data"]["testBatch"], shuffle=False)
-    optimizer = torch.optim.Adam(model.parameters(), lr=p_dict["Train"]["learningRate"])
+    optimizer = torch.optim.Adam(model.parameters(), lr=p_dict["Train"]["lr"])
+    if restart:
+        model.load_state_dict(torch.load('model_state_dict.pt'))
+        optimizer.load_state_dict(torch.load('optimizer_state_dict.pt'))
     train(model, optimizer, train_loader, test_loader, p_dict)
 
 

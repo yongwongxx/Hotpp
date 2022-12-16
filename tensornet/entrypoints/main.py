@@ -34,18 +34,24 @@ def parse_args():
     )
     subparsers = parser.add_subparsers(title="Valid subcommands", dest="command")
     # train
-    parser_search = subparsers.add_parser(
+    parser_train = subparsers.add_parser(
         "train",
         parents=[parser_log],
         help="train",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser_search.add_argument(
+    parser_train.add_argument(
         "-i",
         "--input-file",
         type=str, 
         default="input.yaml",
         help="the input parameter file in yaml format"
+    )
+    parser_train.add_argument(
+        "-r",
+        "--restart",
+        action="store_true",
+        help="Restart the training.",
     )
 
     parsed_args = parser.parse_args()
