@@ -40,6 +40,14 @@ def get_dataset(p_dict):
                               data_dict['name'], 
                               cutoff=p_dict['cutoff'], 
                               device=p_dict['device'])
+    if data_dict['type'] == 'ase':
+        if 'name' in data_dict:
+            dataset = ASEData(root=data_dict['path'],
+                              name=data_dict['name'],
+                              cutoff=p_dict['cutoff'],
+                              device=p_dict['device'])
+        else:
+            dataset = None
     return dataset
 
 
@@ -51,6 +59,17 @@ def split_dataset(dataset, p_dict):
     if "trainNum" in data_dict:
         log.info("Random split, train num: {}, test num: {}".format(data_dict["trainNum"], data_dict["testNum"]))
         return dataset.random_split(data_dict["trainNum"], data_dict["testNum"])
+    if "trainSet" in data_dict:
+        assert data_dict['type'] == 'ase', "trainset must can be read by ase!"
+        trainset = ASEData(root=data_dict['path'], 
+                           name=data_dict['trainSet'],
+                           cutoff=p_dict['cutoff'],
+                           device=p_dict['device'])
+        testset = ASEData(root=data_dict['path'], 
+                           name=data_dict['testSet'],
+                           cutoff=p_dict['cutoff'],
+                           device=p_dict['device'])
+        return trainset, testset
     raise Exception("No splitting!")
 
 
@@ -109,7 +128,8 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
     trainset, testset = split_dataset(dataset, p_dict)
     train_loader = DataLoader(trainset, batch_size=p_dict["Data"]["trainBatch"], shuffle=True)
     test_loader = DataLoader(testset, batch_size=p_dict["Data"]["testBatch"], shuffle=False)
-
+    if dataset is None:
+        dataset = trainset
     mean = dataset.per_energy_mean.detach().cpu().numpy()
     std = dataset.forces_std.detach().cpu().numpy()
     n_neighbor = dataset.n_neighbor_mean

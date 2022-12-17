@@ -19,7 +19,7 @@ class ASEData(AtomsData):
         self.cutoff = cutoff
         self.device = device
         if frames is None:
-            frames = read(os.path.join(root, name), format=format)
+            frames = read(os.path.join(root, name), format=format, index=':')
         self.frames = frames
         self.name = name or "processed"
         if root is None:
