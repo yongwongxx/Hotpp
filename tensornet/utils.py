@@ -59,7 +59,7 @@ def multi_outer_product(v: torch.Tensor,
 def find_distances(batch_data : Dict[str, torch.Tensor],
                    ) -> None:
     if 'rij' not in batch_data:
-        idx_i, idx_j = batch_data.edge_index
+        idx_i, idx_j = batch_data["edge_index"]
         batch_data['rij'] = batch_data['coordinate'][idx_j] + batch_data['offset'] - batch_data['coordinate'][idx_i]
     if 'dij' not in batch_data:
         batch_data['dij'] = torch.norm(batch_data['rij'], dim=-1)

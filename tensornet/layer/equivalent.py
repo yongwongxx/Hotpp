@@ -49,6 +49,7 @@ class TensorAggregateLayer(nn.Module):
 
         output_tensors = {way: None for way in range(self.max_out_way + 1)}
         idx_i, idx_j = batch_data['edge_index']
+        n_atoms = batch_data['atomic_number'].shape[0]
         _, dij, uij = find_distances(batch_data)
         rbf_ij = self.radial_fn(dij) * self.cutoff_fn(dij)[..., None]  # [n_edge, n_rbf]
 
@@ -78,7 +79,7 @@ class TensorAggregateLayer(nn.Module):
             if coupling_way > 0:
                 sum_axis = [i for i in range(in_way - coupling_way + 2, in_way + 2)]
                 output_tensor = torch.sum(output_tensor, dim=sum_axis)
-            output_tensor = _scatter_add(output_tensor, idx_i, dim_size=batch_data.num_nodes) / self.norm_factor
+            output_tensor = _scatter_add(output_tensor, idx_i, dim_size=n_atoms) / self.norm_factor
             # output_tensor = segment_coo(output_tensor, idx_i, dim_size=batch_data.num_nodes, reduce="sum")
 
             if output_tensors[out_way] is None:

@@ -22,7 +22,7 @@ class AtomicModule(nn.Module):
         if 'forces' in properties:
             batch_data['coordinate'].requires_grad_()
         site_energy = self.get_site_energy(batch_data) * self.std + self.mean
-        if 'site_energy' in properties:
+        if ('site_energy' in properties) or ('energies' in properties):
             batch_data['site_energy_p'] = site_energy
         if 'energy' in properties:
             batch_data['energy_p'] = _scatter_add(site_energy, batch_data['batch'])
