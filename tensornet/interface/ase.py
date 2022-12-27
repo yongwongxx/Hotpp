@@ -53,7 +53,7 @@ class MiaoCalculator(Calculator):
             "batch"         : batch,
         }
 
-        self.model(data, properties)
+        self.model(data, properties, create_graph=False)
         if "energy" in properties:
             self.results["energy"] = data["energy_p"].detach().cpu().numpy()[0]
         if "energies" in properties:
