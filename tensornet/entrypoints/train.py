@@ -131,7 +131,7 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
     # Default values
     p_dict = {
         "workDir": os.getcwd(),
-        "seed": np.random.randint(high=100000000),
+        "seed": np.random.randint(0, 100000000),
         "device": "cuda" if torch.cuda.is_available() else "cpu",
         "Data": {
             "path": os.getcwd(),
