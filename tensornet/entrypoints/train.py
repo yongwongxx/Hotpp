@@ -13,6 +13,15 @@ from ..data import *
 log = logging.getLogger(__name__)
 
 
+def update_dict(d1, d2):
+    for key in d2:
+        if key in d1 and isinstance(d1[key], dict):
+            update_dict(d1[key], d2[key])
+        else:
+            d1[key] = d2[key]
+    return d1
+
+
 def get_model(p_dict, elements, mean, std, n_neighbor):
     model_dict = p_dict['Model']
     cut_fn = SmoothCosineCutoff(cutoff=p_dict['cutoff'])
@@ -53,22 +62,22 @@ def get_dataset(p_dict):
 
 def split_dataset(dataset, p_dict):
     data_dict = p_dict['Data']
-    if "trainSplit" in data_dict:
+    if ("trainSplit" in data_dict) and ("testSplit" in data_dict):
         log.info("Load split from {} and {}".format(data_dict["trainSplit"], data_dict["testSplit"]))
         return dataset.load_split(data_dict["trainSplit"], data_dict["testSplit"])
-    if "trainNum" in data_dict:
+    if ("trainNum" in data_dict) and (("testNum" in data_dict)):
         log.info("Random split, train num: {}, test num: {}".format(data_dict["trainNum"], data_dict["testNum"]))
         return dataset.random_split(data_dict["trainNum"], data_dict["testNum"])
-    if "trainSet" in data_dict:
+    if ("trainSet" in data_dict) and ("testSet" in data_dict):
         assert data_dict['type'] == 'ase', "trainset must can be read by ase!"
         trainset = ASEData(root=data_dict['path'], 
                            name=data_dict['trainSet'],
                            cutoff=p_dict['cutoff'],
                            device=p_dict['device'])
         testset = ASEData(root=data_dict['path'], 
-                           name=data_dict['testSet'],
-                           cutoff=p_dict['cutoff'],
-                           device=p_dict['device'])
+                          name=data_dict['testSet'],
+                          cutoff=p_dict['cutoff'],
+                          device=p_dict['device'])
         return trainset, testset
     raise Exception("No splitting!")
 
@@ -104,7 +113,10 @@ def train(model, optimizer, train_loader, test_loader, p_dict):
             train_one_step(model, optimizer, batch_data, p_dict)
         if i % p_dict["Train"]["logInterval"] == 0:
             t1, e1, f1 = eval(model, train_loader)
-            t2, e2, f2 = eval(model, test_loader)
+            if p_dict["Train"]["evalTest"]:
+                t2, e2, f2 = eval(model, test_loader)
+            else:
+                t2, e2, f2 = t1, e1, f1
             log.info(f"{i:5}\t{time.time() - t:.2f}\t{t1:.4f}\t{t2:.4f}\t"
                          f"{e1:.4f}\t{e2:.4f}\t{f1:.4f}\t{f2:.4f}")
             if t2 < min_loss:
@@ -116,20 +128,44 @@ def train(model, optimizer, train_loader, test_loader, p_dict):
 
 
 def main(*args, input_file='input.yaml', restart=False, **kwargs):
-    p_dict = {}
+    # Default values
+    p_dict = {
+        "workDir": os.getcwd(),
+        "seed": np.random.randint(high=100000000),
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "Data": {
+            "path": os.getcwd(),
+            "trainBatch": 32,
+            "testBatch": 32,
+        },
+        "Model": {
+            "nEmbedding": 64,
+            "nBasis": 20, 
+            "nLayer": 5,
+            "maxRWay": 2,
+            "maxOutWay": 2,
+            "nHidden": 64,
+        },
+        "Train": {
+            "lr": 0.001,
+            "weight": [0.1, 1.0, 0.0],
+            "logInterval": 100,
+            "evalTest": True,
+        },
+    }
     with open(input_file) as f:
-        p_dict.update(yaml.load(f, Loader=yaml.FullLoader))
-    if "seed" not in p_dict:
-        p_dict["seed"] = np.random.randint(high=100000000)
+        update_dict(p_dict, yaml.load(f, Loader=yaml.FullLoader))
+
     setup_seed(p_dict["seed"])
-    log.info("Using seed {}".format(p_dict["seed"]))    
-    p_dict['workDir'] = os.getcwd()
+    log.info("Using seed {}".format(p_dict["seed"]))
+    
     dataset = get_dataset(p_dict)
     trainset, testset = split_dataset(dataset, p_dict)
     train_loader = DataLoader(trainset, batch_size=p_dict["Data"]["trainBatch"], shuffle=True)
     test_loader = DataLoader(testset, batch_size=p_dict["Data"]["testBatch"], shuffle=False)
     if dataset is None:
         dataset = trainset
+
     mean = dataset.per_energy_mean.detach().cpu().numpy()
     std = dataset.forces_std.detach().cpu().numpy()
     n_neighbor = dataset.n_neighbor_mean
