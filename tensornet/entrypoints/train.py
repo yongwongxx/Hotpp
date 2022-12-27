@@ -156,6 +156,9 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
     with open(input_file) as f:
         update_dict(p_dict, yaml.load(f, Loader=yaml.FullLoader))
 
+    with open("allpara.yaml", "w") as f:
+        yaml.dump(p_dict, f)
+
     setup_seed(p_dict["seed"])
     log.info("Using seed {}".format(p_dict["seed"]))
     
