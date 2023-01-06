@@ -9,14 +9,16 @@ from ase.neighborlist import neighbor_list
 class AtomsData(InMemoryDataset):
     @staticmethod
     def atoms_to_graph(atoms, cutoff, device='cpu'):
-        idx_i, idx_j, offsets = neighbor_list("ijS", atoms, cutoff, self_interaction=False)
+        dim = len(atoms.get_cell())
+        idx_i, idx_j, offset = neighbor_list("ijS", atoms, cutoff, self_interaction=False)
         bonds = np.array([idx_i, idx_j])
-        offsets = np.array(offsets) @ atoms.get_cell()
+        offset = np.array(offset) @ atoms.get_cell()
         index = torch.arange(len(atoms), dtype=torch.long, device=device)
         atomic_number = torch.tensor(atoms.numbers, dtype=torch.long, device=device)
         edge_index = torch.tensor(bonds, dtype=torch.long, device=device)
-        offset = torch.tensor(offsets, dtype=EnvPara.FLOAT_PRECISION, device=device)
+        offset = torch.tensor(offset, dtype=EnvPara.FLOAT_PRECISION, device=device)
         coordinate = torch.tensor(atoms.positions, dtype=EnvPara.FLOAT_PRECISION, device=device)
+        scaling = torch.eye(dim, dtype=EnvPara.FLOAT_PRECISION, device=device).view(1, dim, dim)
         n_atoms = torch.tensor(len(atoms), dtype=EnvPara.FLOAT_PRECISION, device=device)
         graph = Data(x=index,
                     atomic_number=atomic_number, 
@@ -24,6 +26,7 @@ class AtomsData(InMemoryDataset):
                     offset=offset,
                     coordinate=coordinate,
                     n_atoms=n_atoms,
+                    scaling=scaling,
                     )
         for key in ['site_energy', 'energy', 'forces']:#, 'stress']:
             graph['has_' + key] = False

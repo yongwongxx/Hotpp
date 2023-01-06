@@ -6,7 +6,7 @@
 
 import torch
 from torch import nn
-from typing import Dict, Callable
+from typing import Dict, Callable, Union
 from .base import RadialLayer, CutoffLayer
 from ..utils import find_distances, expand_to, way_combination, multi_outer_product, _scatter_add
 
@@ -18,11 +18,40 @@ from ..utils import find_distances, expand_to, way_combination, multi_outer_prod
 #   .....
 # coordinate: [n_atoms, n_dim]
 
-__all__ = ["TensorAggregateLayer",
+__all__ = ["TensorDense",
+           "TensorAggregateLayer",
            "SelfInteractionLayer",
            "NonLinearLayer",
            "SOnEquivalentLayer",
            ]
+
+
+class TensorDense(nn.Module):
+    def __init__(self,
+                 in_features  : int,
+                 out_features : int,
+                 activate_fn  : Union[Callable, nn.Module]=None,
+                 ) -> None:
+        super().__init__()
+        self.linear = nn.Linear(in_features, out_features, bias=False)
+        self.bias = nn.Parameter(torch.zeros(out_features, requires_grad=True))
+        self.activate_fn = activate_fn or nn.Identity()
+
+    def forward(self, 
+                input: torch.Tensor,   # [n_batch, n_channel, n_dim, n_dim, ...]
+                ):
+        way = len(input.shape) - 2
+        if way == 0:
+            output_tensor = self.activate_fn(self.linear(input) + self.bias)
+        else:
+            input_tensor = torch.transpose(input, 1, -1)
+            output_tensor = self.linear(input_tensor)
+            norm = torch.linalg.norm(output_tensor, dim=tuple(range(1, 1 + way)), keepdim=True) + self.bias
+            factor = self.activate_fn(norm) / torch.where(norm == 0, torch.ones_like(norm), norm)
+            output_tensor = factor * output_tensor
+            output_tensor = torch.transpose(output_tensor, 1, -1)
+        return output_tensor
+
 
 class TensorAggregateLayer(nn.Module):
     def __init__(self, 
@@ -134,12 +163,14 @@ class NonLinearLayer(nn.Module):
             if way == 0:
                 output_tensor = self.activate_fn(self.weights[way] * input_tensors[way] + self.bias[way])
             else:
-                # output_tensor = input_tensors[way]
-                # norm = torch.linalg.norm(input_tensors[way], dim=tuple(range(3, 3 + way)), keepdim=True)
-                norm = torch.sum(input_tensors[way] ** 2, dim=tuple(range(2, 2 + way)), keepdim=True)
+                # norm = torch.sum(input_tensors[way] ** 2, dim=tuple(range(2, 2 + way)), keepdim=True)
                 # use tanh to confine factor between [-1, 1]
-                factor = torch.tanh(self.weights[way] * norm + self.bias[way])
-                output_tensor = (factor + 1) * input_tensors[way]
+                # factor = torch.tanh(self.weights[way] * norm + self.bias[way])
+                # output_tensor = input_tensors[way] * factor
+                norm = torch.sum(input_tensors[way] ** 2, dim=tuple(range(2, 2 + way)))
+                norm = self.weights[way] * norm + self.bias[way]
+                factor = self.activate_fn(norm) / torch.where(norm == 0, torch.ones_like(norm), norm)
+                output_tensor = input_tensors[way] * expand_to(factor, 2 + way)
             output_tensors[way] = output_tensor
         return output_tensors
 

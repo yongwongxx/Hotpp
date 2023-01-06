@@ -56,8 +56,19 @@ def multi_outer_product(v: torch.Tensor,
     return out
 
 
-def find_distances(batch_data : Dict[str, torch.Tensor],
-                   ) -> None:
+def add_scaling(batch_data  : Dict[str, torch.Tensor],) -> None:
+    if 'has_add_scaling' not in batch_data:
+        idx_m = batch_data['batch']
+        idx_i = batch_data['edge_index'][0]
+        batch_data['coordinate'] = torch.matmul(batch_data['coordinate'][:, None, :], 
+                                                batch_data['scaling'][idx_m]).squeeze(1)
+        batch_data['offset'] = torch.matmul(batch_data['offset'][:, None, :],
+                                            batch_data['scaling'][idx_i]).squeeze(1)
+        batch_data['has_add_scaling'] = True
+    return batch_data
+
+
+def find_distances(batch_data  : Dict[str, torch.Tensor],) -> None:
     if 'rij' not in batch_data:
         idx_i, idx_j = batch_data["edge_index"]
         batch_data['rij'] = batch_data['coordinate'][idx_j] + batch_data['offset'] - batch_data['coordinate'][idx_i]

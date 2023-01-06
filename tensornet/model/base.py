@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from typing import List, Dict
-from tensornet.utils import _scatter_add
+from tensornet.utils import _scatter_add, find_distances, add_scaling
 
 
 class AtomicModule(nn.Module):
@@ -21,7 +21,14 @@ class AtomicModule(nn.Module):
                 ) -> Dict[str, torch.Tensor]:
         if 'forces' in properties:
             batch_data['coordinate'].requires_grad_()
-        site_energy = self.get_site_energy(batch_data) * self.std + self.mean
+        if 'virial' in properties or 'stress' in properties:
+            batch_data['scaling'].requires_grad_()
+            add_scaling(batch_data)
+        output_tensors = self.calculate(batch_data)
+        if 'site_energy' in output_tensors:
+            site_energy = output_tensors['site_energy'] * self.std + self.mean
+        if 'dipole' in output_tensors:
+            dipole = output_tensors['dipole']
         if ('site_energy' in properties) or ('energies' in properties):
             batch_data['site_energy_p'] = site_energy
         if 'energy' in properties:
@@ -30,7 +37,12 @@ class AtomicModule(nn.Module):
             batch_data['forces_p'] = -torch.autograd.grad(site_energy.sum(),
                                                           batch_data['coordinate'],
                                                           create_graph=create_graph)[0]
+        if 'virial' in properties or 'stress' in properties:
+            batch_data['virial'] = torch.autograd.grad(site_energy.sum(),
+                                                       batch_data['scaling'],
+                                                       create_graph=create_graph)[0]
         return batch_data
 
-    def get_site_energy(self):
-        raise NotImplementedError(f"{self.__class__.__name__} must have 'get_site_energy'!")
+    def calculate(self):
+        raise NotImplementedError(f"{self.__class__.__name__} must have 'calculate'!")
+

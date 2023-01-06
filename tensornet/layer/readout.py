@@ -3,34 +3,32 @@
 import torch
 from torch import nn
 from typing import List, Dict, Callable
+from .equivalent import TensorDense
 
 
 __all__ = ["ReadoutLayer"]
+
+
 class ReadoutLayer(nn.Module):
     def __init__(self, 
                  n_dim       : int,
-                 target_way  : List[int]=[0],
+                 target_way  : Dict[int, str]={0: "site_energy"},
                  activate_fn : Callable=torch.relu,
                  ) -> None:
         super().__init__()
-        self.layer1_list = nn.ModuleList([nn.Linear(n_dim, n_dim)])
-        for way in range(1, max(target_way) + 1):
-            self.layer1_list.append(nn.Linear(n_dim, n_dim, bias=False))
-        self.layer2_list = nn.ModuleList([nn.Linear(n_dim, 1)])
-        for way in range(1, max(target_way) + 1):
-            self.layer2_list.append(nn.Linear(n_dim, 1, bias=False))
         self.target_way = target_way
-        self.activate_fn = activate_fn
-    
+        self.layer_dict = nn.ModuleDict({
+            prop: nn.Sequential(
+                TensorDense(n_dim, n_dim, activate_fn=activate_fn),
+                TensorDense(n_dim, 1, activate_fn=None),
+                )
+            for prop in target_way.values()
+            })
+
     def forward(self, 
                 batch_data : Dict[str, torch.Tensor],
                 ) -> Dict[int, torch.Tensor]:
         output_tensors = {}
-        for way in self.target_way:
-            input_tensor  = torch.transpose(batch_data['node_attr'][way], 1, -1)
-            output_tensor = self.layer1_list[way](input_tensor)
-            output_tensor = self.activate_fn(output_tensor)
-            output_tensor = self.layer2_list[way](output_tensor)
-            output_tensor = torch.transpose(output_tensor, 1, -1).squeeze(1)  # delete channel dim
-            output_tensors[way] = output_tensor
+        for way, prop in self.target_way.items():
+            output_tensors[prop] = self.layer_dict[prop](batch_data['node_attr'][way]).squeeze(1)  # delete channel dim
         return output_tensors

@@ -47,6 +47,6 @@ class BesselPoly(RadialLayer):
                 distances: torch.Tensor,
                 ) -> torch.Tensor:
         out = torch.sin(distances.unsqueeze(-1) * self.freqs)
-        norm = torch.where(distances == 0, 1.0, distances)
+        norm = torch.where(distances == 0, torch.ones_like(distances), distances)
         out = out / norm.unsqueeze(-1)
         return out

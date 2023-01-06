@@ -35,7 +35,7 @@ def get_model(p_dict, elements, mean, std, n_neighbor):
                     max_out_way=model_dict['maxOutWay'],
                     output_dim=model_dict['nHidden'],
                     activate_fn=F.silu,
-                    target_way=[0],
+                    target_way={0 : 'site_energy'},
                     mean=mean,
                     std=std,
                     norm_factor=n_neighbor).to(p_dict['device'])

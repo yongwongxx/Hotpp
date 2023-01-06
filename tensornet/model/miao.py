@@ -43,12 +43,12 @@ class MiaoNet(AtomicModule):
                                           target_way=target_way, 
                                           activate_fn=activate_fn)
 
-    def get_site_energy(self,
-                        batch_data : Dict[str, torch.Tensor],
-                        ) -> torch.Tensor:
+    def calculate(self,
+                  batch_data : Dict[str, torch.Tensor],
+                  ) -> torch.Tensor:
         find_distances(batch_data)
         batch_data['node_attr'] = {0: self.embedding_layer(batch_data=batch_data)}
         for layer in self.son_equivalent_layers:
             batch_data = layer(batch_data)
         output_tensors = self.readout_layer(batch_data)
-        return output_tensors[0]
+        return output_tensors
