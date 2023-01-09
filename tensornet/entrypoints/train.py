@@ -34,7 +34,7 @@ def get_model(p_dict, elements, mean, std, n_neighbor):
                     max_r_way=model_dict['maxRWay'],
                     max_out_way=model_dict['maxOutWay'],
                     output_dim=model_dict['nHidden'],
-                    activate_fn=F.silu,
+                    activate_fn=model_dict['activateFn'],
                     target_way={0 : 'site_energy'},
                     mean=mean,
                     std=std,
@@ -139,6 +139,7 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
             "testBatch": 32,
         },
         "Model": {
+            "activateFn": "jilu",
             "nEmbedding": 64,
             "nBasis": 20, 
             "nLayer": 5,

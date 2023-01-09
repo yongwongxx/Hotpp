@@ -6,6 +6,7 @@ from typing import Dict
 __all__ = ["RadialLayer",
            "EmbeddingLayer",
            "CutoffLayer",
+           "TensorActivateLayer",
            ]
 
 
@@ -46,3 +47,34 @@ class CutoffLayer(nn.Module):
                 ):
         raise NotImplementedError(f"{self.__class__.__name__} must have 'forward'!")
 
+
+class TensorActivateLayer(nn.Module):
+    """Activate function for tensor inputs with shape [n_batch, n_channel, n_dim, n_dim, ...]
+    For tensor with way more than one, bias should be different so the number of input_dim is required.
+    """
+    def __init__(self,
+                 input_dim : int,
+                 ) -> None:
+        super().__init__()
+        self.weights = nn.Parameter(torch.ones(input_dim, requires_grad=True))
+        self.bias = nn.Parameter(torch.zeros(input_dim, requires_grad=True))
+
+    def forward(self,
+                input_tensor: torch.Tensor,
+                ) -> torch.Tensor:
+        way = len(input_tensor.shape) - 2
+        if way == 0:
+            return self.activate(input_tensor)
+        else:
+            return self.tensor_activate(input_tensor, way=way)
+
+    def activate(self,
+                 input_tensor: torch.Tensor,
+                 ) -> torch.Tensor:
+        raise NotImplementedError(f"{self.__class__.__name__} must have 'activate'!")
+
+    def tensor_activate(self,
+                        input_tensor: torch.Tensor,
+                        way         : int,
+                        ) -> torch.Tensor:
+        raise NotImplementedError(f"{self.__class__.__name__} must have 'tensor_activate'!")

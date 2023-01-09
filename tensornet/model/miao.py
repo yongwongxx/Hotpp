@@ -19,7 +19,7 @@ class MiaoNet(AtomicModule):
                  max_r_way       : int or List,
                  max_out_way     : int or List,
                  output_dim      : int or List,
-                 activate_fn     : Callable,
+                 activate_fn     : str="jilu",
                  target_way      : List[int]=[0],
                  mean            : float=0.,
                  std             : float=1.,

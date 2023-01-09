@@ -1,9 +1,8 @@
-# TODO 
-# activate_fn should be changed to tensor activate_fn
 import torch
 from torch import nn
 from typing import List, Dict, Callable
-from .equivalent import TensorDense
+from .equivalent import TensorLinear
+from .activate import TensorActivateDict
 
 
 __all__ = ["ReadoutLayer"]
@@ -13,16 +12,17 @@ class ReadoutLayer(nn.Module):
     def __init__(self, 
                  n_dim       : int,
                  target_way  : Dict[int, str]={0: "site_energy"},
-                 activate_fn : Callable=torch.relu,
+                 activate_fn : str="jilu",
                  ) -> None:
         super().__init__()
         self.target_way = target_way
         self.layer_dict = nn.ModuleDict({
             prop: nn.Sequential(
-                TensorDense(n_dim, n_dim, activate_fn=activate_fn),
-                TensorDense(n_dim, 1, activate_fn=None),
+                TensorLinear(n_dim, n_dim, bias=(way==0)),
+                TensorActivateDict[activate_fn](n_dim),
+                TensorLinear(n_dim, 1, bias=(way==0)),
                 )
-            for prop in target_way.values()
+            for way, prop in target_way.items()
             })
 
     def forward(self, 

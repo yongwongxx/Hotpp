@@ -8,6 +8,7 @@ import torch
 from torch import nn
 from typing import Dict, Callable, Union
 from .base import RadialLayer, CutoffLayer
+from .activate import TensorActivateDict
 from ..utils import find_distances, expand_to, way_combination, multi_outer_product, _scatter_add
 
 
@@ -18,7 +19,7 @@ from ..utils import find_distances, expand_to, way_combination, multi_outer_prod
 #   .....
 # coordinate: [n_atoms, n_dim]
 
-__all__ = ["TensorDense",
+__all__ = ["TensorLinear",
            "TensorAggregateLayer",
            "SelfInteractionLayer",
            "NonLinearLayer",
@@ -26,29 +27,24 @@ __all__ = ["TensorDense",
            ]
 
 
-class TensorDense(nn.Module):
+class TensorLinear(nn.Module):
     def __init__(self,
-                 in_features  : int,
-                 out_features : int,
-                 activate_fn  : Union[Callable, nn.Module]=None,
+                 input_dim   : int,
+                 output_dim  : int,
+                 bias        : bool=False,
                  ) -> None:
         super().__init__()
-        self.linear = nn.Linear(in_features, out_features, bias=False)
-        self.bias = nn.Parameter(torch.zeros(out_features, requires_grad=True))
-        self.activate_fn = activate_fn or nn.Identity()
+        self.linear = nn.Linear(input_dim, output_dim, bias=bias)
 
     def forward(self, 
-                input: torch.Tensor,   # [n_batch, n_channel, n_dim, n_dim, ...]
+                input_tensor: torch.Tensor,   # [n_batch, n_channel, n_dim, n_dim, ...]
                 ):
-        way = len(input.shape) - 2
+        way = len(input_tensor.shape) - 2
         if way == 0:
-            output_tensor = self.activate_fn(self.linear(input) + self.bias)
-        else:
-            input_tensor = torch.transpose(input, 1, -1)
             output_tensor = self.linear(input_tensor)
-            norm = torch.linalg.norm(output_tensor, dim=tuple(range(1, 1 + way)), keepdim=True) + self.bias
-            factor = self.activate_fn(norm) / torch.where(norm == 0, torch.ones_like(norm), norm)
-            output_tensor = factor * output_tensor
+        else:
+            input_tensor = torch.transpose(input_tensor, 1, -1)
+            output_tensor = self.linear(input_tensor)
             output_tensor = torch.transpose(output_tensor, 1, -1)
         return output_tensor
 
@@ -145,39 +141,25 @@ class SelfInteractionLayer(nn.Module):
 # TODO: cat different way together and use Linear layer to got factor of every channel
 class NonLinearLayer(nn.Module):
     def __init__(self, 
-                 activate_fn : Callable,
                  max_in_way  : int,
+                 input_dim   : int,
+                 activate_fn : str='jilu',
                  ) -> None:
         super().__init__()
-        self.activate_fn = activate_fn
-        # TODO: how to initialize parameters?
-        self.weights = nn.Parameter(torch.ones(max_in_way + 1, requires_grad=True))
-        self.bias = nn.Parameter(torch.zeros(max_in_way + 1, requires_grad=True))
+        self.activate_list = nn.ModuleList([TensorActivateDict[activate_fn](input_dim) 
+                                            for _ in range(max_in_way + 1)])
 
     def forward(self,
                 input_tensors: torch.Tensor,
                 ) -> torch.Tensor:
-        #output_tensors = {way: tensor for way, tensor in input_tensors.items()}
         output_tensors = {}
-        for way in input_tensors:
-            if way == 0:
-                output_tensor = self.activate_fn(self.weights[way] * input_tensors[way] + self.bias[way])
-            else:
-                # norm = torch.sum(input_tensors[way] ** 2, dim=tuple(range(2, 2 + way)), keepdim=True)
-                # use tanh to confine factor between [-1, 1]
-                # factor = torch.tanh(self.weights[way] * norm + self.bias[way])
-                # output_tensor = input_tensors[way] * factor
-                norm = torch.sum(input_tensors[way] ** 2, dim=tuple(range(2, 2 + way)))
-                norm = self.weights[way] * norm + self.bias[way]
-                factor = self.activate_fn(norm) / torch.where(norm == 0, torch.ones_like(norm), norm)
-                output_tensor = input_tensors[way] * expand_to(factor, 2 + way)
-            output_tensors[way] = output_tensor
+        for way in input_tensors: 
+            output_tensors[way] = self.activate_list[way](input_tensors[way])
         return output_tensors
 
 
 class SOnEquivalentLayer(nn.Module):
     def __init__(self,
-                 activate_fn    : Callable,
                  radial_fn      : RadialLayer,
                  cutoff_fn      : CutoffLayer,
                  max_r_way      : int,
@@ -185,6 +167,7 @@ class SOnEquivalentLayer(nn.Module):
                  input_dim      : int,
                  output_dim     : int,
                  norm_factor    : float=1.0,
+                 activate_fn    : str='jilu',
                  ) -> None:
         super().__init__()
         self.tensor_aggregate = TensorAggregateLayer(radial_fn=radial_fn,
@@ -199,7 +182,8 @@ class SOnEquivalentLayer(nn.Module):
                                                   max_in_way=max_out_way, 
                                                   output_dim=output_dim)
         self.non_linear = NonLinearLayer(activate_fn=activate_fn,
-                                         max_in_way=max_out_way)
+                                         max_in_way=max_out_way,
+                                         input_dim=output_dim)
 
     def forward(self,
                 batch_data : Dict[int, torch.Tensor],
