@@ -1,3 +1,4 @@
+# TODO: There are now in-place operations in TensorTanh and TensorRelu, why?
 import torch
 import torch.nn.functional as F
 from .base import TensorActivateLayer
@@ -9,12 +10,19 @@ class TensorTanh(TensorActivateLayer):
     def activate(self,
                  input_tensor: torch.Tensor,
                  ) -> torch.Tensor:
-        return F.tanh(input_tensor)
+        return torch.tanh(input_tensor)
 
     def tensor_activate(self, input_tensor: torch.Tensor, way: int) -> torch.Tensor:
-        norm = self.weights * torch.sum(input_tensor ** 2, dim=tuple(range(2, 2 + way))) + self.bias
-        factor = F.tanh(norm) / torch.where(norm == 0, torch.ones_like(norm), norm)
-        return expand_to(factor, 2 + way) * input_tensor
+        #norm = self.weights * torch.sum(input_tensor ** 2, dim=tuple(range(2, 2 + way))) + self.bias
+        #nonzero_norm = torch.where(norm == 0, torch.ones_like(norm), norm)
+        #factor = torch.tanh(norm) / nonzero_norm
+        #return expand_to(factor, 2 + way) * input_tensor
+        norm = torch.sum(input_tensor ** 2, dim=tuple(range(2, 2 + way)))
+        norm = self.weights * norm + self.bias
+        factor = torch.tanh(norm) / torch.where(norm == 0, torch.ones_like(norm), norm)
+        output_tensor = input_tensor * expand_to(factor, 2 + way)
+        return output_tensor
+
 
 
 class TensorRelu(TensorActivateLayer):
@@ -26,7 +34,7 @@ class TensorRelu(TensorActivateLayer):
     
     def tensor_activate(self, input_tensor: torch.Tensor, way: int) -> torch.Tensor:
         norm = self.weights * torch.sum(input_tensor ** 2, dim=tuple(range(2, 2 + way))) + self.bias
-        factor = F.relu(norm) / torch.where(norm == 0, torch.ones_like(norm), norm)
+        factor = torch.where(norm == 0, torch.ones_like(norm), norm)
         return expand_to(factor, 2 + way) * input_tensor
 
 
