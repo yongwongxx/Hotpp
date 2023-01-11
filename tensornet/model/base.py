@@ -19,9 +19,12 @@ class AtomicModule(nn.Module):
                 properties   : List[str]=['energy'],
                 create_graph : bool=True,
                 ) -> Dict[str, torch.Tensor]:
+        required_derivatives = []
         if 'forces' in properties:
+            required_derivatives.append('coordinate')
             batch_data['coordinate'].requires_grad_()
         if 'virial' in properties or 'stress' in properties:
+            required_derivatives.append('scaling')
             batch_data['scaling'].requires_grad_()
             add_scaling(batch_data)
         output_tensors = self.calculate(batch_data)
@@ -33,14 +36,14 @@ class AtomicModule(nn.Module):
             batch_data['site_energy_p'] = site_energy
         if 'energy' in properties:
             batch_data['energy_p'] = _scatter_add(site_energy, batch_data['batch'])
+        if len(required_derivatives) > 0:
+            grads = torch.autograd.grad(site_energy.sum(),
+                                        [batch_data[prop] for prop in required_derivatives],
+                                        create_graph=create_graph)
         if 'forces' in properties:
-            batch_data['forces_p'] = -torch.autograd.grad(site_energy.sum(),
-                                                          batch_data['coordinate'],
-                                                          create_graph=create_graph)[0]
+            batch_data['forces_p'] = -grads[required_derivatives.index('coordinate')]
         if 'virial' in properties or 'stress' in properties:
-            batch_data['virial_p'] = torch.autograd.grad(site_energy.sum(),
-                                                         batch_data['scaling'],
-                                                         create_graph=create_graph)[0]
+            batch_data['virial_p'] = grads[required_derivatives.index('scaling')]
         return batch_data
 
     def calculate(self):

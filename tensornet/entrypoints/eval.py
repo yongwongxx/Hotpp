@@ -1,5 +1,3 @@
-# TODO
-# now forces and virials cannot be calculated together with create_graph=False, should fix it
 from ase.io import read                                                                                        
 import numpy as np
 import torch
@@ -12,7 +10,7 @@ def eval(model, data_loader, properties):
     target = {prop: [] for prop in properties}
     n_atoms = []
     for batch_data in data_loader:
-        model(batch_data, properties, create_graph=True)
+        model(batch_data, properties, create_graph=False)
         n_atoms.extend(batch_data['n_atoms'].detach().cpu().numpy())
         for prop in properties:
             output[prop].extend(batch_data[f'{prop}_p'].detach().cpu().numpy())
