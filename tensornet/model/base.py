@@ -38,9 +38,9 @@ class AtomicModule(nn.Module):
                                                           batch_data['coordinate'],
                                                           create_graph=create_graph)[0]
         if 'virial' in properties or 'stress' in properties:
-            batch_data['virial'] = torch.autograd.grad(site_energy.sum(),
-                                                       batch_data['scaling'],
-                                                       create_graph=create_graph)[0]
+            batch_data['virial_p'] = torch.autograd.grad(site_energy.sum(),
+                                                         batch_data['scaling'],
+                                                         create_graph=create_graph)[0]
         return batch_data
 
     def calculate(self):

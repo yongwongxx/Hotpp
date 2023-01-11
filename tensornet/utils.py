@@ -63,7 +63,7 @@ def add_scaling(batch_data  : Dict[str, torch.Tensor],) -> None:
         batch_data['coordinate'] = torch.matmul(batch_data['coordinate'][:, None, :], 
                                                 batch_data['scaling'][idx_m]).squeeze(1)
         batch_data['offset'] = torch.matmul(batch_data['offset'][:, None, :],
-                                            batch_data['scaling'][idx_i]).squeeze(1)
+                                            batch_data['scaling'][idx_m][idx_i]).squeeze(1)
         batch_data['has_add_scaling'] = True
     return batch_data
 
