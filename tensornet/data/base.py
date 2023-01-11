@@ -28,11 +28,20 @@ class AtomsData(InMemoryDataset):
                     n_atoms=n_atoms,
                     scaling=scaling,
                     )
-        for key in ['site_energy', 'energy', 'forces']:#, 'stress']:
-            graph['has_' + key] = False
+        padding_shape = {
+            'site_energy' : (len(atoms)),
+            'energy'      : (1),
+            'forces'      : (len(atoms), dim),
+            'virial'      : (1, dim, dim), 
+            'dipole'      : (len(atoms)), 
+        }
+        for key in ['site_energy', 'energy', 'forces', 'virial', 'dipole']:
             if key in atoms.info:
-                graph[key + '_t'] = torch.tensor(atoms.info[key], dtype=EnvPara.FLOAT_PRECISION, device=device)
+                graph[key + '_t'] = torch.tensor(atoms.info[key], dtype=EnvPara.FLOAT_PRECISION, device=device).reshape(padding_shape[key])
                 graph['has_' + key] = True
+            else:
+                graph[key + '_t'] = torch.zeros(padding_shape[key], dtype=EnvPara.FLOAT_PRECISION, device=device)
+                graph['has_' + key] = False
         return graph
 
     @property

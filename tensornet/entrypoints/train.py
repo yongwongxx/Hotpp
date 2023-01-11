@@ -4,7 +4,8 @@ from torch_geometric.loader import DataLoader
 import torch
 import torch.nn.functional as F
 from ase.data import atomic_numbers
-from ..utils import setup_seed, get_loss
+from ..utils import setup_seed
+from ..loss import Loss, MissingValueLoss
 from ..model import MiaoNet
 from ..layer import SmoothCosineCutoff, BesselPoly, AtomicEmbedding
 from ..data import *
@@ -82,43 +83,59 @@ def split_dataset(dataset, p_dict):
     raise Exception("No splitting!")
 
 
-def train_one_step(model, optimizer, batch_data, p_dict):
+def get_loss_calculator(p_dict):
+    train_dict = p_dict['Train']
+    target = train_dict['targetProp']
+    weight = train_dict['weight']
+    weights = {p: w for p, w in zip(target, weight)}
+    if train_dict['allowMissing']:
+        return MissingValueLoss(weights, loss_fn=F.mse_loss)
+    else:
+        return Loss(weights, loss_fn=F.mse_loss)
+
+    
+def train_one_step(model, properties, loss_calculator, optimizer, batch_data, p_dict):
     optimizer.zero_grad()
-    model(batch_data, ['energy', 'forces'])
-    loss = get_loss(batch_data, p_dict["Train"]["weight"])
+    model(batch_data, properties)
+    loss = loss_calculator.get_loss(batch_data)
     loss.backward()
     optimizer.step()
 
 
-def eval(model, data_loader):
-    total, e, f = [], [], []
+def eval(model, properties, loss_calculator, data_loader):
+    total = []
+    prop_loss = {}
     for i_batch, batch_data in enumerate(data_loader):
-        model(batch_data, ['energy', 'forces'], create_graph=False)
-        loss, ee, ff = get_loss(batch_data, [1., 1., 0.], verbose=True, loss_fn=F.l1_loss)
+        model(batch_data, properties, create_graph=False)
+        loss, loss_dict = loss_calculator.get_loss(batch_data, verbose=True)
         total.append(loss.detach().cpu().numpy())
-        e.append(ee.detach().cpu().numpy())
-        f.append(ff.detach().cpu().numpy())
+        for prop in loss_dict:
+            if prop not in prop_loss:
+                prop_loss[prop] = []
+            prop_loss[prop].append(loss_dict[prop].detach().cpu().numpy())
     t1 = np.mean(total)
-    e1 = np.mean(e)
-    f1 = np.mean(f)
-    return t1, e1, f1
+    for prop in loss_dict:
+        prop_loss[prop] = np.mean(prop_loss[prop])
+    return t1, prop_loss
 
     
-def train(model, optimizer, train_loader, test_loader, p_dict):
+def train(model, loss_calculator, optimizer, train_loader, test_loader, p_dict):
     min_loss = 10000
     t = time.time()
     log.info("epoch\ttime\tt_train\tt_test\te_train\te_test\tf_train\tf_test")
     for i in range(p_dict["Train"]["epoch"]):
         for i_batch, batch_data in enumerate(train_loader):
-            train_one_step(model, optimizer, batch_data, p_dict)
+            train_one_step(model, p_dict["Train"]['targetProp'], loss_calculator, optimizer, batch_data, p_dict)
         if i % p_dict["Train"]["logInterval"] == 0:
-            t1, e1, f1 = eval(model, train_loader)
+            t1, prop_loss1 = eval(model, p_dict["Train"]['targetProp'], loss_calculator, train_loader)
             if p_dict["Train"]["evalTest"]:
-                t2, e2, f2 = eval(model, test_loader)
+                t2, prop_loss2 = eval(model, p_dict["Train"]['targetProp'], loss_calculator, test_loader)
             else:
-                t2, e2, f2 = t1, e1, f1
-            log.info(f"{i:5}\t{time.time() - t:.2f}\t{t1:.4f}\t{t2:.4f}\t"
-                         f"{e1:.4f}\t{e2:.4f}\t{f1:.4f}\t{f2:.4f}")
+                t2, prop_loss2 = t1, prop_loss1
+            content = f"{i:5}\t{time.time() - t:.2f}\t{t1:.4f}\t{t2:.4f}\t"
+            for prop in p_dict["Train"]['targetProp']:
+                content += f"{prop_loss1[prop]:.4f}\t{prop_loss2[prop]:.4f}\t"
+            log.info(content)
             if t2 < min_loss:
                 min_loss = t2
                 torch.save(model, 'model.pt')
@@ -149,6 +166,8 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
         },
         "Train": {
             "lr": 0.001,
+            "allowMissing": False,
+            "targetProp": ["energy", "forces"],
             "weight": [0.1, 1.0, 0.0],
             "logInterval": 100,
             "evalTest": True,
@@ -183,7 +202,8 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
     if restart:
         model.load_state_dict(torch.load('model_state_dict.pt'))
         optimizer.load_state_dict(torch.load('optimizer_state_dict.pt'))
-    train(model, optimizer, train_loader, test_loader, p_dict)
+    loss_calculator = get_loss_calculator(p_dict)
+    train(model, loss_calculator, optimizer, train_loader, test_loader, p_dict)
 
 
 if __name__ == "__main__":

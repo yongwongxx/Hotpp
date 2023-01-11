@@ -43,7 +43,7 @@ class AtomicModule(nn.Module):
         if 'forces' in properties:
             batch_data['forces_p'] = -grads[required_derivatives.index('coordinate')]
         if 'virial' in properties or 'stress' in properties:
-            batch_data['virial_p'] = grads[required_derivatives.index('scaling')]
+            batch_data['virial_p'] = -grads[required_derivatives.index('scaling')]
         return batch_data
 
     def calculate(self):
