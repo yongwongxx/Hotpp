@@ -50,7 +50,7 @@ class TensorSilu(TensorActivateLayer):
 
     def tensor_activate(self, input_tensor: torch.Tensor, way: int) -> torch.Tensor:
         norm = self.weights * torch.sum(input_tensor ** 2, dim=tuple(range(2, 2 + way))) + self.bias
-        factor = F.sigmoid(norm)
+        factor = torch.sigmoid(norm)
         return expand_to(factor, 2 + way) * input_tensor
 
 
