@@ -20,7 +20,7 @@ class MiaoNet(AtomicModule):
                  max_out_way     : int or List,
                  output_dim      : int or List,
                  activate_fn     : str="jilu",
-                 target_way      : List[int]=[0],
+                 target_way      : Dict[str, int]={"site_energy": 0},
                  mean            : float=0.,
                  std             : float=1.,
                  norm_factor     : float=1.,

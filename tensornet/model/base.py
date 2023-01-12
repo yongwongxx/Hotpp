@@ -31,7 +31,7 @@ class AtomicModule(nn.Module):
         if 'site_energy' in output_tensors:
             site_energy = output_tensors['site_energy'] * self.std + self.mean
         if 'dipole' in output_tensors:
-            dipole = output_tensors['dipole']
+            batch_data['dipole_p'] = _scatter_add(output_tensors['dipole'], batch_data['batch'])
         if ('site_energy' in properties) or ('energies' in properties):
             batch_data['site_energy_p'] = site_energy
         if 'energy' in properties:

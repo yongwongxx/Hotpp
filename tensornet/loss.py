@@ -6,8 +6,8 @@ from .utils import expand_to
 
 class Loss:
 
-    atom_prop = ["forces", "dipole"]
-    structure_prop = ["energy", "virial"]
+    atom_prop = ["forces"]
+    structure_prop = ["energy", "virial", "dipole"]
 
     def __init__(self,
                  weight  : Dict[str, float]={"energy": 1.0, "forces": 1.0},

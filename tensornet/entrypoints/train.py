@@ -25,6 +25,12 @@ def update_dict(d1, d2):
 
 def get_model(p_dict, elements, mean, std, n_neighbor):
     model_dict = p_dict['Model']
+    target = p_dict['Train']['targetProp']
+    target_way = {}
+    if ("energy" in target) or ("forces" in target) or ("virial" in target):
+        target_way["site_energy"] = 0
+    if "dipole" in target:
+        target_way["dipole"] = 1
     cut_fn = SmoothCosineCutoff(cutoff=p_dict['cutoff'])
     emb = AtomicEmbedding(elements, model_dict['nEmbedding'])
     radial_fn = BesselPoly(r_max=p_dict['cutoff'], n_max=model_dict['nBasis'])
@@ -36,7 +42,7 @@ def get_model(p_dict, elements, mean, std, n_neighbor):
                     max_out_way=model_dict['maxOutWay'],
                     output_dim=model_dict['nHidden'],
                     activate_fn=model_dict['activateFn'],
-                    target_way={0 : 'site_energy'},
+                    target_way=target_way,
                     mean=mean,
                     std=std,
                     norm_factor=n_neighbor).to(p_dict['device'])
@@ -163,6 +169,7 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
             "maxRWay": 2,
             "maxOutWay": 2,
             "nHidden": 64,
+            "targetWay": {0 : 'site_energy'},
         },
         "Train": {
             "lr": 0.001,
@@ -189,8 +196,14 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
     if dataset is None:
         dataset = trainset
 
-    mean = dataset.per_energy_mean.detach().cpu().numpy()
-    std = dataset.forces_std.detach().cpu().numpy()
+    try:
+        mean = dataset.per_energy_mean.detach().cpu().numpy()
+    except:
+        mean = 0.
+    try:
+        std = dataset.forces_std.detach().cpu().numpy()
+    except:
+        std = 1.
     n_neighbor = dataset.n_neighbor_mean
     elements = list(dataset.all_elements.detach().cpu().numpy())
     log.info(f"energy_mean  : {mean}")

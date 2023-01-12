@@ -33,7 +33,7 @@ class AtomsData(InMemoryDataset):
             'energy'      : (1),
             'forces'      : (len(atoms), dim),
             'virial'      : (1, dim, dim), 
-            'dipole'      : (len(atoms)), 
+            'dipole'      : (1, dim), 
         }
         for key in ['site_energy', 'energy', 'forces', 'virial', 'dipole']:
             if key in atoms.info:
@@ -80,7 +80,7 @@ class AtomsData(InMemoryDataset):
         return self.copy(train_idx), self.copy(test_idx)
 
     def random_split(self, train_num: int, test_num: int):
-        assert train_num + test_num < len(self)
+        assert train_num + test_num <= len(self)
         idx = np.random.choice(len(self), train_num + test_num, replace=False)
         train_idx = idx[:train_num]
         test_idx  = idx[train_num:]
