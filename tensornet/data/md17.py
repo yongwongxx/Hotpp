@@ -45,15 +45,19 @@ class RevisedMD17(AtomsData):
 
     def process(self):
         raw_data = np.load(self.raw_paths[0])
+        symbols = raw_data["nuclear_charges"]
+        coords = raw_data["coords"]
+        energies = raw_data["energies"]
+        forces = raw_data["forces"]
         data_list = []
-        n_data = len(raw_data["energies"])
+        n_data = len(energies)
         for i in range(n_data):
             progress_bar(i, n_data)
-            atoms = Atoms(symbols=raw_data["nuclear_charges"],
-                        positions=raw_data["coords"][i],
-                        info={"energy": raw_data["energies"][i],
-                              "forces": raw_data["forces"][i]}
-                        )
+            atoms = Atoms(symbols=symbols,
+                          positions=coords[i],
+                          info={"energy": energies[i],
+                                "forces": forces[i]}
+                          )
             data = self.atoms_to_graph(atoms, self.cutoff, self.device)
             data_list.append(data)
         torch.save(self.collate(data_list), self.processed_paths[0])

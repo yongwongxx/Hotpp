@@ -172,7 +172,8 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
             "targetWay": {0 : 'site_energy'},
         },
         "Train": {
-            "lr": 0.001,
+            "learningRate": 0.001,
+            "weightDecay ": 0.,
             "allowMissing": False,
             "targetProp": ["energy", "forces"],
             "weight": [0.1, 1.0, 0.0],
@@ -211,7 +212,7 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
     log.info(f"n_neighbor   : {n_neighbor}")
     log.info(f"all_elements : {elements}")
     model = get_model(p_dict, elements, mean, std, n_neighbor)
-    optimizer = torch.optim.Adam(model.parameters(), lr=p_dict["Train"]["lr"])
+    optimizer = torch.optim.Adam(model.parameters(), lr=p_dict["Train"]["learningRate"], weight_decay=p_dict["Train"]["weightDecay"])
     if restart:
         model.load_state_dict(torch.load('model_state_dict.pt'))
         optimizer.load_state_dict(torch.load('optimizer_state_dict.pt'))

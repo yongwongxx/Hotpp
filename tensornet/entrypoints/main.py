@@ -54,53 +54,53 @@ def parse_args():
         help="Restart the training.",
     )
     # eval
-    parser_train = subparsers.add_parser(
+    parser_eval = subparsers.add_parser(
         "eval",
         help="train",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser_train.add_argument(
+    parser_eval.add_argument(
         "-m",
         "--model",
         type=str, 
         default="model.pt",
         help="model"
     )
-    parser_train.add_argument(
+    parser_eval.add_argument(
         "-c",
         "--cutoff",
         type=float, 
         default=None,
         help="cutoff"
     )
-    parser_train.add_argument(
+    parser_eval.add_argument(
         "--device",
         choices=["cuda", "cpu"],
         default="cpu",
         help="device"
     )
-    parser_train.add_argument(
+    parser_eval.add_argument(
         "-d",
         "--dataset",
         type=str, 
         default="data.traj",
         help="dataset"
     )
-    parser_train.add_argument(
+    parser_eval.add_argument(
         "-f",
         "--format",
         type=str, 
         default=None,
         help="format"
     )
-    parser_train.add_argument(
+    parser_eval.add_argument(
         "-b",
         "--batchsize",
         type=int, 
         default=32,
         help="batchsize"
     )
-    parser_train.add_argument(
+    parser_eval.add_argument(
         "-p",
         "--properties",
         type=str,
@@ -108,7 +108,26 @@ def parse_args():
         default=["energy", "forces"],
         help="target properties"
     )
-
+    # clean
+    parser_clean = subparsers.add_parser(
+        "clean",
+        help="clean",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    # plot
+    parser_plot = subparsers.add_parser(
+        "plot",
+        help="plot",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser_plot.add_argument(
+        "-p",
+        "--properties",
+        type=str,
+        nargs="+",
+        default=["per_energy", "forces"],
+        help="target properties"
+    )
     parsed_args = parser.parse_args()
     if parsed_args.command is None:
         print(__picture__)
