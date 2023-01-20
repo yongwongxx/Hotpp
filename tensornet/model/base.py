@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from typing import List, Dict
+from typing import List, Dict, Optional
 from tensornet.utils import _scatter_add, find_distances, add_scaling
 
 
@@ -16,10 +16,15 @@ class AtomicModule(nn.Module):
 
     def forward(self, 
                 batch_data   : Dict[str, torch.Tensor],
-                properties   : List[str]=['energy'],
+                properties   : Optional[List[str]]=None,
                 create_graph : bool=True,
                 ) -> Dict[str, torch.Tensor]:
-        required_derivatives = []
+        # Use properties=None instead of properties=['energy'] because
+        # Mutable default parameters are not supported because
+        # Python binds them to the function and they persist across function calls.
+        if properties is None:
+            properties = ['energy']
+        required_derivatives = torch.jit.annotate(List[str], [])
         if 'forces' in properties:
             required_derivatives.append('coordinate')
             batch_data['coordinate'].requires_grad_()
@@ -30,6 +35,11 @@ class AtomicModule(nn.Module):
         output_tensors = self.calculate(batch_data)
         if 'site_energy' in output_tensors:
             site_energy = output_tensors['site_energy'] * self.std + self.mean
+        #######################################
+        # for torch.jit.script 
+        else:
+            site_energy = batch_data['n_atoms']
+        #######################################
         if 'dipole' in output_tensors:
             batch_data['dipole_p'] = _scatter_add(output_tensors['dipole'], batch_data['batch'])
         if ('site_energy' in properties) or ('energies' in properties):
@@ -37,13 +47,28 @@ class AtomicModule(nn.Module):
         if 'energy' in properties:
             batch_data['energy_p'] = _scatter_add(site_energy, batch_data['batch'])
         if len(required_derivatives) > 0:
-            grads = torch.autograd.grad(site_energy.sum(),
+            grads = torch.autograd.grad([site_energy.sum()],
                                         [batch_data[prop] for prop in required_derivatives],
                                         create_graph=create_graph)
+        #######################################
+        # for torch.jit.script 
+        else:
+            grads = torch.jit.annotate(List[Optional[torch.Tensor]], [])
+        #######################################
         if 'forces' in properties:
-            batch_data['forces_p'] = -grads[required_derivatives.index('coordinate')]
+            #######################################
+            # for torch.jit.script 
+            dE_dr = grads[required_derivatives.index('coordinate')]
+            if dE_dr is not None:
+                batch_data['forces_p'] = -dE_dr
+            #######################################
         if 'virial' in properties or 'stress' in properties:
-            batch_data['virial_p'] = -grads[required_derivatives.index('scaling')]
+            #######################################
+            # for torch.jit.script 
+            dE_dl = grads[required_derivatives.index('scaling')]
+            if dE_dl is not None:
+                batch_data['virial_p'] = -dE_dl
+            #######################################
         return batch_data
 
     def calculate(self):

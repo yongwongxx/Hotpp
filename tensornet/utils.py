@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import itertools
 import torch.nn.functional as F
-from typing import Iterable, Optional, Dict, List, Callable
+from typing import Iterable, Optional, Dict, List, Callable, Tuple
 
 
 def setup_seed(seed):
@@ -13,17 +13,24 @@ def setup_seed(seed):
     torch.backends.cudnn.deterministic = True
 
 
-def way_combination(out_way : Iterable, 
-                    in_way  : Iterable, 
-                    r_way   : Iterable
-                    ) -> Iterable:
-    for o, i, r in itertools.product(out_way, in_way, r_way):
-        z = (i + r - o) / 2
-        if 0 <= z <= min(i, r) and int(z) == z:
-            yield (o, i, r)
+def way_combination(out_way : List[int], 
+                    in_way  : List[int], 
+                    r_way   : List[int]
+                    ) -> List[Tuple[int, int, int]]:
+    # cannot use itertools.product in jit
+    comb = torch.jit.annotate(List[Tuple[int, int, int]], [])
+    for o in out_way:
+        for i in in_way:
+            for r in r_way:
+                z = (i + r - o) / 2
+                if 0 <= z <= min(i, r) and int(z) == z:
+                    comb.append((o, i, r))
+    return comb
 
 
-def expand_to(t, n_dim, dim=-1):
+def expand_to(t     : torch.Tensor, 
+              n_dim : int, 
+              dim   : int=-1) -> torch.Tensor:
     """Expand dimension of the input tensor t at location 'dim' until the total dimention arrive 'n_dim'
 
     Args:
@@ -56,7 +63,7 @@ def multi_outer_product(v: torch.Tensor,
     return out
 
 
-def add_scaling(batch_data  : Dict[str, torch.Tensor],) -> None:
+def add_scaling(batch_data  : Dict[str, torch.Tensor],) -> Dict[str, torch.Tensor]:
     if 'has_add_scaling' not in batch_data:
         idx_m = batch_data['batch']
         idx_i = batch_data['edge_index'][0]
@@ -64,13 +71,14 @@ def add_scaling(batch_data  : Dict[str, torch.Tensor],) -> None:
                                                 batch_data['scaling'][idx_m]).squeeze(1)
         batch_data['offset'] = torch.matmul(batch_data['offset'][:, None, :],
                                             batch_data['scaling'][idx_m][idx_i]).squeeze(1)
-        batch_data['has_add_scaling'] = True
+        batch_data['has_add_scaling'] = torch.tensor(True)
     return batch_data
 
 
-def find_distances(batch_data  : Dict[str, torch.Tensor],) -> None:
+def find_distances(batch_data  : Dict[str, torch.Tensor],) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if 'rij' not in batch_data:
-        idx_i, idx_j = batch_data["edge_index"]
+        idx_i = batch_data["edge_index"][0]
+        idx_j = batch_data["edge_index"][1]
         batch_data['rij'] = batch_data['coordinate'][idx_j] + batch_data['offset'] - batch_data['coordinate'][idx_i]
     if 'dij' not in batch_data:
         batch_data['dij'] = torch.norm(batch_data['rij'], dim=-1)

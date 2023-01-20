@@ -64,31 +64,34 @@ class TensorAggregateLayer(nn.Module):
         self.radial_fn = radial_fn
         self.cutoff_fn = cutoff_fn
         self.rbf_mixing_list = nn.ModuleList([
-            nn.Linear(radial_fn.n_max, n_channel, bias=False) for i in range(max_r_way + 1)])
+            nn.Linear(radial_fn.n_max, n_channel, bias=False) for way in range(max_r_way + 1)])
         self.register_buffer("norm_factor", torch.tensor(norm_factor).float())
 
     def forward(self,
                 input_tensors : Dict[int, torch.Tensor],
-                batch_data    : Dict[int, torch.Tensor],
+                batch_data    : Dict[str, torch.Tensor],
                 ) -> Dict[int, torch.Tensor]:
 
-        output_tensors = {way: None for way in range(self.max_out_way + 1)}
-        idx_i, idx_j = batch_data['edge_index']
+        output_tensors = torch.jit.annotate(Dict[int, torch.Tensor], {})
+        idx_i = batch_data['edge_index'][0]
+        idx_j = batch_data['edge_index'][1]
         n_atoms = batch_data['atomic_number'].shape[0]
         _, dij, uij = find_distances(batch_data)
         rbf_ij = self.radial_fn(dij) * self.cutoff_fn(dij)[..., None]  # [n_edge, n_rbf]
 
-        filter_tensor_dict = {}
-        for out_way, in_way, r_way in way_combination(range(self.max_out_way + 1), 
-                                                      input_tensors.keys(), 
-                                                      range(self.max_r_way + 1)):
-            if r_way not in filter_tensor_dict:
-                fn = self.rbf_mixing_list[r_way](rbf_ij)          # [n_edge, n_channel]
-                # TODO: WHY!!!!!!!!!! CAO!
-                # fn = fn * input_tensor_dict[0]                  # [n_edge, n_channel]
-                moment_tensor = multi_outer_product(uij, r_way)   # [n_edge, n_dim, ...]
-                filter_tensor = moment_tensor.unsqueeze(1) * expand_to(fn, n_dim=r_way + 2)
-                filter_tensor_dict[r_way] = filter_tensor         # [n_edge, n_channel, n_dim, n_dim, ...]
+        # calculate filter_tensor firstly to avoid repetitive computation
+        filter_tensor_dict = torch.jit.annotate(Dict[int, torch.Tensor], {})
+        for r_way, rbf_mixing in enumerate(self.rbf_mixing_list):
+            fn = rbf_mixing(rbf_ij)                           # [n_edge, n_channel]
+            # TODO: WHY!!!!!!!!!! CAO!
+            # fn = fn * input_tensor_dict[0]                  # [n_edge, n_channel]
+            moment_tensor = multi_outer_product(uij, r_way)   # [n_edge, n_dim, ...]
+            filter_tensor = moment_tensor.unsqueeze(1) * expand_to(fn, n_dim=r_way + 2)
+            filter_tensor_dict[r_way] = filter_tensor         # [n_edge, n_channel, n_dim, n_dim, ...]
+
+        for out_way, in_way, r_way in way_combination(list(range(self.max_out_way + 1)), 
+                                                      list(input_tensors.keys()), 
+                                                      list(range(self.max_r_way + 1))):
             filter_tensor = filter_tensor_dict[r_way]             # [n_edge, n_channel, n_dim, n_dim, ...]
             input_tensor = input_tensors[in_way][idx_j]           # [n_edge, n_channel, n_dim, n_dim, ...]
             coupling_way = (in_way + r_way - out_way) // 2
@@ -107,7 +110,7 @@ class TensorAggregateLayer(nn.Module):
             output_tensor = _scatter_add(output_tensor, idx_i, dim_size=n_atoms) / self.norm_factor
             # output_tensor = segment_coo(output_tensor, idx_i, dim_size=batch_data.num_nodes, reduce="sum")
 
-            if output_tensors[out_way] is None:
+            if out_way not in output_tensors:
                 output_tensors[out_way] = output_tensor
             else:
                 output_tensors[out_way] += output_tensor
@@ -123,18 +126,19 @@ class SelfInteractionLayer(nn.Module):
         super().__init__()
         # only the way 0 can have bias
         self.linear_interact_list = nn.ModuleList([nn.Linear(input_dim, output_dim)])
-        for way in range(1, max_in_way + 1):
+        for _ in range(1, max_in_way + 1):
             self.linear_interact_list.append(nn.Linear(input_dim, output_dim, bias=False))
 
     def forward(self,
                 input_tensors : Dict[int, torch.Tensor],
                 ) -> Dict[int, torch.Tensor]:
-        output_tensors = {}
-        for way in input_tensors:
-            # swap channel axis and the last dim axis
-            input_tensor = torch.transpose(input_tensors[way], 1, -1)
-            output_tensor = self.linear_interact_list[way](input_tensor)
-            output_tensors[way] = torch.transpose(output_tensor, 1, -1)
+        output_tensors = torch.jit.annotate(Dict[int, torch.Tensor], {})
+        for way, linear_interact in enumerate(self.linear_interact_list):
+            if way in input_tensors:
+                # swap channel axis and the last dim axis
+                input_tensor = torch.transpose(input_tensors[way], 1, -1)
+                output_tensor = linear_interact(input_tensor)
+                output_tensors[way] = torch.transpose(output_tensor, 1, -1)
         return output_tensors
 
 
@@ -146,15 +150,15 @@ class NonLinearLayer(nn.Module):
                  activate_fn : str='jilu',
                  ) -> None:
         super().__init__()
-        self.activate_list = nn.ModuleList([TensorActivateDict[activate_fn](input_dim) 
-                                            for _ in range(max_in_way + 1)])
+        self.activate_list = nn.ModuleList([TensorActivateDict[activate_fn](input_dim) for _ in range(max_in_way + 1)])
 
     def forward(self,
-                input_tensors: torch.Tensor,
-                ) -> torch.Tensor:
-        output_tensors = {}
-        for way in input_tensors: 
-            output_tensors[way] = self.activate_list[way](input_tensors[way])
+                input_tensors: Dict[int, torch.Tensor],
+                ) -> Dict[int, torch.Tensor]:
+        output_tensors = torch.jit.annotate(Dict[int, torch.Tensor], {})
+        for way, activate in enumerate(self.activate_list):
+            if way in input_tensors:
+                output_tensors[way] = activate(input_tensors[way])
         return output_tensors
 
 
@@ -186,15 +190,16 @@ class SOnEquivalentLayer(nn.Module):
                                          input_dim=output_dim)
 
     def forward(self,
-                batch_data : Dict[int, torch.Tensor],
+                input_tensors : Dict[int, torch.Tensor],
+                batch_data    : Dict[str, torch.Tensor],
                 ) -> Dict[int, torch.Tensor]:
-        batch_data['node_attr'] = self.propagate(batch_data['node_attr'], batch_data)
-        return batch_data
+        input_tensors = self.propagate(input_tensors, batch_data)
+        return input_tensors
 
     # TODO: sparse version
     def message_and_aggregate(self,
                               input_tensors : Dict[int, torch.Tensor],
-                              batch_data    : Dict[int, torch.Tensor],
+                              batch_data    : Dict[str, torch.Tensor],
                               ) -> Dict[int, torch.Tensor]:
         output_tensors =  self.tensor_aggregate(input_tensors=input_tensors, 
                                                 batch_data=batch_data)
@@ -215,7 +220,7 @@ class SOnEquivalentLayer(nn.Module):
 
     def propagate(self,
                   input_tensors : Dict[int, torch.Tensor],
-                  batch_data : Dict[int, torch.Tensor],
+                  batch_data : Dict[str, torch.Tensor],
                   ) -> Dict[int, torch.Tensor]:
         output_tensors = self.message_and_aggregate(input_tensors, batch_data)
         output_tensors = self.update(output_tensors)

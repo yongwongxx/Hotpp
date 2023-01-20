@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from typing import List, Dict, Callable
+from typing import List, Dict, Callable, Any
 from .equivalent import TensorLinear
 from .activate import TensorActivateDict
 
@@ -9,6 +9,7 @@ __all__ = ["ReadoutLayer"]
 
 
 class ReadoutLayer(nn.Module):
+
     def __init__(self, 
                  n_dim       : int,
                  target_way  : Dict[str, int]={"site_energy": 0},
@@ -26,9 +27,10 @@ class ReadoutLayer(nn.Module):
             })
 
     def forward(self, 
-                batch_data : Dict[str, torch.Tensor],
-                ) -> Dict[int, torch.Tensor]:
-        output_tensors = {}
-        for prop, way in self.target_way.items():
-            output_tensors[prop] = self.layer_dict[prop](batch_data['node_attr'][way]).squeeze(1)  # delete channel dim
+                input_tensors : Dict[int, torch.Tensor],
+                ) -> Dict[str, torch.Tensor]:
+        output_tensors = torch.jit.annotate(Dict[str, torch.Tensor], {})
+        for prop, readout_layer in self.layer_dict.items():
+            way = self.target_way[prop]
+            output_tensors[prop] = readout_layer(input_tensors[way]).squeeze(1)  # delete channel dim
         return output_tensors

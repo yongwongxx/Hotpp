@@ -60,7 +60,7 @@ class AtomicEmbedding(EmbeddingLayer):
                  n_channel     : int,
                  ) -> None:
         super().__init__()
-        max_atomic_number = max(atomic_number)
+        max_atomic_number = int(max(atomic_number))
         self.z_weights = nn.Embedding(max_atomic_number + 1, n_channel)
         self.n_channel = n_channel
 
