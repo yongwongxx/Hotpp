@@ -173,7 +173,7 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
         },
         "Train": {
             "learningRate": 0.001,
-            "weightDecay ": 0.,
+            "weightDecay": 0.,
             "allowMissing": False,
             "targetProp": ["energy", "forces"],
             "weight": [0.1, 1.0, 0.0],

@@ -128,6 +128,31 @@ def parse_args():
         default=["per_energy", "forces"],
         help="target properties"
     )
+    # freeze
+    parser_freeze = subparsers.add_parser(
+        "freeze",
+        help="freeze",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser_freeze.add_argument(
+        "-m",
+        "--model",
+        default="model.pt",
+        help="model",
+    )
+    parser_freeze.add_argument(
+        "-d",
+        "--device",
+        choices=["cuda", "cpu"],
+        default="cpu",
+        help="device"
+    )
+    parser_freeze.add_argument(
+        "-o",
+        "--output",
+        default="infer.pt",
+        help="output",
+    )
     parsed_args = parser.parse_args()
     if parsed_args.command is None:
         print(__picture__)
