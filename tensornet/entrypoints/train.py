@@ -212,6 +212,8 @@ def main(*args, input_file='input.yaml', restart=False, **kwargs):
     log.info(f"n_neighbor   : {n_neighbor}")
     log.info(f"all_elements : {elements}")
     model = get_model(p_dict, elements, mean, std, n_neighbor)
+    model.register_buffer('all_elements', torch.tensor(elements, dtype=torch.long))
+    model.register_buffer('cutoff', torch.tensor(p_dict["cutoff"], dtype=torch.float64))
     optimizer = torch.optim.Adam(model.parameters(), lr=p_dict["Train"]["learningRate"], weight_decay=p_dict["Train"]["weightDecay"])
     if restart:
         model.load_state_dict(torch.load('model_state_dict.pt'))

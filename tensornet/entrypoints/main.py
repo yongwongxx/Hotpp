@@ -141,6 +141,14 @@ def parse_args():
         help="model",
     )
     parser_freeze.add_argument(
+        "-s",
+        "--symbols",
+        type=str,
+        nargs="+",
+        default=None,
+        help="symbols"
+    )
+    parser_freeze.add_argument(
         "-d",
         "--device",
         choices=["cuda", "cpu"],
