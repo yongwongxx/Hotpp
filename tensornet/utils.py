@@ -69,8 +69,9 @@ def add_scaling(batch_data  : Dict[str, torch.Tensor],) -> Dict[str, torch.Tenso
         idx_i = batch_data['edge_index'][0]
         batch_data['coordinate'] = torch.matmul(batch_data['coordinate'][:, None, :], 
                                                 batch_data['scaling'][idx_m]).squeeze(1)
-        batch_data['offset'] = torch.matmul(batch_data['offset'][:, None, :],
-                                            batch_data['scaling'][idx_m][idx_i]).squeeze(1)
+        if 'offset' in batch_data:
+            batch_data['offset'] = torch.matmul(batch_data['offset'][:, None, :],
+                                                batch_data['scaling'][idx_m][idx_i]).squeeze(1)
         batch_data['has_add_scaling'] = torch.tensor(True)
     return batch_data
 
@@ -79,7 +80,10 @@ def find_distances(batch_data  : Dict[str, torch.Tensor],) -> Tuple[torch.Tensor
     if 'rij' not in batch_data:
         idx_i = batch_data["edge_index"][0]
         idx_j = batch_data["edge_index"][1]
-        batch_data['rij'] = batch_data['coordinate'][idx_j] + batch_data['offset'] - batch_data['coordinate'][idx_i]
+        if 'offset' in batch_data:
+            batch_data['rij'] = batch_data['coordinate'][idx_j] + batch_data['offset'] - batch_data['coordinate'][idx_i]
+        else:
+            batch_data['rij'] = batch_data['coordinate'][idx_j] - batch_data['coordinate'][idx_i]
     if 'dij' not in batch_data:
         batch_data['dij'] = torch.norm(batch_data['rij'], dim=-1)
     if 'uij' not in batch_data:
