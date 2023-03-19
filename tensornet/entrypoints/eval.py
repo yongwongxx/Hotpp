@@ -2,7 +2,7 @@ from ase.io import read
 import numpy as np
 import torch
 from torch_geometric.loader import DataLoader
-from tensornet.data import ASEData
+from tensornet.data import ASEData, PtData
 
 
 def eval(model, data_loader, properties):
@@ -25,9 +25,12 @@ def eval(model, data_loader, properties):
 
 def main(*args, cutoff=None, model='model.pt', device='cpu', dataset='data.traj', format=None, 
          properties=["energy", "forces"], batchsize=32, **kwargs):
-    assert cutoff is not None , "Now cutoff must be given!"
-    frames = read(dataset, index=':', format=format)
-    dataset = ASEData(frames, name="eval_process", cutoff=cutoff, device=device)
+    if '.pt' in dataset:
+        dataset = PtData(dataset, device=device)
+    else:
+        assert cutoff is not None, "Must have cutoff!!"
+        frames = read(dataset, index=':', format=format)
+        dataset = ASEData(frames, name="eval_process", cutoff=cutoff, device=device)
     data_loader = DataLoader(dataset, batch_size=batchsize, shuffle=False)
     model = torch.load(model) 
     eval(model, data_loader, properties)

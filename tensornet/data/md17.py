@@ -15,10 +15,10 @@ class RevisedMD17(AtomsData):
         "azobenzene",
         "benzene",
         "ethanol",
-        "malonaldehyd",
+        "malonaldehyde",
         "naphthalene",
         "paracetamol",
-        "salicyli",
+        "salicylic",
         "toluene",
         "uracil",
     ]
