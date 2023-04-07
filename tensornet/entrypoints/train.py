@@ -174,6 +174,8 @@ def train(model, loss_calculator, optimizer, lr_scheduler, ema, train_loader, te
             model(batch_data, p_dict["Train"]['targetProp'])
             loss = loss_calculator.get_loss(batch_data)
             loss.backward()
+            if p_dict["Train"]["maxGradNorm"] is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=p_dict["Train"]["maxGradNorm"])
             optimizer.step()
             if ema is not None:
                 ema.update_parameters(model)
@@ -328,6 +330,7 @@ def main(*args, input_file='input.yaml', load_model=None, load_para=None, load_o
             "saveInterval": 500,
             "saveStart": 1000,
             "evalTest": True,
+            "maxGradNorm": 10.,
             "Optimizer": {
                 "type": "Adam",
                 "amsGrad": True,
