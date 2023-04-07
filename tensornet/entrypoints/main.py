@@ -48,10 +48,22 @@ def parse_args():
         help="the input parameter file in yaml format"
     )
     parser_train.add_argument(
-        "-r",
-        "--restart",
-        action="store_true",
-        help="Restart the training.",
+        "--load_model",
+        type=str,
+        default=None,
+        help="Load model from load_model.",
+    )
+    parser_train.add_argument(
+        "--load_para",
+        type=str,
+        default=None,
+        help="Construct model and load para from load_para.",
+    )
+    parser_train.add_argument(
+        "--load_opt",
+        type=str,
+        default=None,
+        help="Load optimizer para from load_opt .",
     )
     # eval
     parser_eval = subparsers.add_parser(

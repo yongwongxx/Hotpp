@@ -9,7 +9,7 @@ from torch import nn
 from typing import Dict, Callable, Union
 from .base import RadialLayer, CutoffLayer
 from .activate import TensorActivateDict
-from ..utils import find_distances, expand_to, way_combination, multi_outer_product, _scatter_add
+from ..utils import find_distances, expand_to, multi_outer_product, _scatter_add
 
 
 # input_tensors be like:
@@ -28,6 +28,9 @@ __all__ = ["TensorLinear",
 
 
 class TensorLinear(nn.Module):
+    """
+    Linear layer for tensors with shape [n_batch, n_channel, n_dim, n_dim, ...]
+    """
     def __init__(self,
                  input_dim   : int,
                  output_dim  : int,
@@ -52,50 +55,50 @@ class TensorLinear(nn.Module):
 class TensorAggregateLayer(nn.Module):
     def __init__(self, 
                  radial_fn      : RadialLayer,
-                 cutoff_fn      : CutoffLayer,
                  n_channel      : int,
-                 max_out_way    : int=2, 
+                 max_in_way     : int=2,
+                 max_out_way    : int=2,
                  max_r_way      : int=2,
                  norm_factor    : float=1.,
                  ) -> None:
         super().__init__()
-        self.max_out_way = max_out_way
-        self.max_r_way = max_r_way
+        # get all possible "i, r, o" combinations
+        self.all_combinations = []
+        self.rbf_mixing_dict = nn.ModuleDict()
+        for in_way in range(max_in_way + 1):
+            for r_way in range(max_r_way + 1):
+                for z_way in range(min(in_way, r_way) + 1):
+                    out_way = in_way + r_way - 2 * z_way
+                    if out_way <= max_out_way:
+                        comb = (in_way, r_way, out_way)
+                        self.all_combinations.append(comb)
+                        self.rbf_mixing_dict[str(comb)] = nn.Linear(radial_fn.n_features, n_channel, bias=False)
+
         self.radial_fn = radial_fn
-        self.cutoff_fn = cutoff_fn
-        self.rbf_mixing_list = nn.ModuleList([
-            nn.Linear(radial_fn.n_max, n_channel, bias=False) for way in range(max_r_way + 1)])
         self.register_buffer("norm_factor", torch.tensor(norm_factor).float())
 
     def forward(self,
                 input_tensors : Dict[int, torch.Tensor],
                 batch_data    : Dict[str, torch.Tensor],
                 ) -> Dict[int, torch.Tensor]:
-
+        # These 3 rows are required by torch script
         output_tensors = torch.jit.annotate(Dict[int, torch.Tensor], {})
         idx_i = batch_data['edge_index'][0]
         idx_j = batch_data['edge_index'][1]
+
         n_atoms = batch_data['atomic_number'].shape[0]
         _, dij, uij = find_distances(batch_data)
-        rbf_ij = self.radial_fn(dij) * self.cutoff_fn(dij)[..., None]  # [n_edge, n_rbf]
+        rbf_ij = self.radial_fn(dij)    # [n_edge, n_rbf]
 
-        # calculate filter_tensor firstly to avoid repetitive computation
-        filter_tensor_dict = torch.jit.annotate(Dict[int, torch.Tensor], {})
-        for r_way, rbf_mixing in enumerate(self.rbf_mixing_list):
-            fn = rbf_mixing(rbf_ij)                           # [n_edge, n_channel]
+        for in_way, r_way, out_way in self.all_combinations:
+            fn = self.rbf_mixing_dict[str((in_way, r_way, out_way))](rbf_ij) # [n_edge, n_channel]
             # TODO: WHY!!!!!!!!!! CAO!
-            # fn = fn * input_tensor_dict[0]                  # [n_edge, n_channel]
-            moment_tensor = multi_outer_product(uij, r_way)   # [n_edge, n_dim, ...]
-            filter_tensor = moment_tensor.unsqueeze(1) * expand_to(fn, n_dim=r_way + 2)
-            filter_tensor_dict[r_way] = filter_tensor         # [n_edge, n_channel, n_dim, n_dim, ...]
-
-        for out_way, in_way, r_way in way_combination(list(range(self.max_out_way + 1)), 
-                                                      list(input_tensors.keys()), 
-                                                      list(range(self.max_r_way + 1))):
-            filter_tensor = filter_tensor_dict[r_way]             # [n_edge, n_channel, n_dim, n_dim, ...]
-            input_tensor = input_tensors[in_way][idx_j]           # [n_edge, n_channel, n_dim, n_dim, ...]
+            # fn = fn * input_tensor_dict[0]
+            moment_tensor = multi_outer_product(uij, r_way)  # [n_edge, n_dim, ...]
+            filter_tensor = moment_tensor.unsqueeze(1) * expand_to(fn, n_dim=r_way + 2) # [n_edge, n_channel, n_dim, n_dim, ...]
+            input_tensor = input_tensors[in_way][idx_j]      # [n_edge, n_channel, n_dim, n_dim, ...]
             coupling_way = (in_way + r_way - out_way) // 2
-            # # method 1 
+            # method 1 
             n_way = in_way + r_way - coupling_way + 2
             input_tensor  = expand_to(input_tensor, n_way, dim=-1)
             filter_tensor = expand_to(filter_tensor, n_way, dim=2)
@@ -114,6 +117,7 @@ class TensorAggregateLayer(nn.Module):
                 output_tensors[out_way] = output_tensor
             else:
                 output_tensors[out_way] += output_tensor
+
         return output_tensors
 
 
@@ -165,8 +169,8 @@ class NonLinearLayer(nn.Module):
 class SOnEquivalentLayer(nn.Module):
     def __init__(self,
                  radial_fn      : RadialLayer,
-                 cutoff_fn      : CutoffLayer,
                  max_r_way      : int,
+                 max_in_way     : int,
                  max_out_way    : int,
                  input_dim      : int,
                  output_dim     : int,
@@ -175,8 +179,8 @@ class SOnEquivalentLayer(nn.Module):
                  ) -> None:
         super().__init__()
         self.tensor_aggregate = TensorAggregateLayer(radial_fn=radial_fn,
-                                                     cutoff_fn=cutoff_fn,
                                                      n_channel=input_dim,
+                                                     max_in_way=max_in_way,
                                                      max_out_way=max_out_way, 
                                                      max_r_way=max_r_way,
                                                      norm_factor=norm_factor,)

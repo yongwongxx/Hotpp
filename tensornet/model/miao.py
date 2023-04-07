@@ -14,7 +14,6 @@ class MiaoNet(AtomicModule):
     def __init__(self,
                  embedding_layer : EmbeddingLayer,
                  radial_fn       : RadialLayer,
-                 cutoff_fn       : CutoffLayer,
                  n_layers        : int,
                  max_r_way       : int or List,
                  max_out_way     : int or List,
@@ -29,12 +28,14 @@ class MiaoNet(AtomicModule):
         self.embedding_layer = embedding_layer
         max_r_way = expand_para(max_r_way, n_layers)
         max_out_way = expand_para(max_out_way, n_layers)
+        max_in_way = [0] + max_out_way[1:]
         hidden_nodes = [embedding_layer.n_channel] + expand_para(output_dim, n_layers)
         self.son_equivalent_layers = nn.ModuleList([
             SOnEquivalentLayer(activate_fn=activate_fn,
-                               radial_fn=radial_fn,
-                               cutoff_fn=cutoff_fn,
+                               radial_fn=radial_fn.replicate(),  
+                               # Use factory method, so the radial_fn in each layer are different
                                max_r_way=max_r_way[i],
+                               max_in_way=max_in_way[i],
                                max_out_way=max_out_way[i],
                                input_dim=hidden_nodes[i],
                                output_dim=hidden_nodes[i + 1],

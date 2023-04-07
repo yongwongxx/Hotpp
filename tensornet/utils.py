@@ -13,21 +13,6 @@ def setup_seed(seed):
     torch.backends.cudnn.deterministic = True
 
 
-def way_combination(out_way : List[int], 
-                    in_way  : List[int], 
-                    r_way   : List[int]
-                    ) -> List[Tuple[int, int, int]]:
-    # cannot use itertools.product in jit
-    comb = torch.jit.annotate(List[Tuple[int, int, int]], [])
-    for o in out_way:
-        for i in in_way:
-            for r in r_way:
-                z = (i + r - o) / 2
-                if 0 <= z <= min(i, r) and int(z) == z:
-                    comb.append((o, i, r))
-    return comb
-
-
 def expand_to(t     : torch.Tensor, 
               n_dim : int, 
               dim   : int=-1) -> torch.Tensor:

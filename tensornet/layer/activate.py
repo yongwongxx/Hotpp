@@ -24,7 +24,6 @@ class TensorTanh(TensorActivateLayer):
         return output_tensor
 
 
-
 class TensorRelu(TensorActivateLayer):
 
     def activate(self,
