@@ -19,9 +19,9 @@ class CosineCutoff(CutoffLayer):
 
 
 class SmoothCosineCutoff(CutoffLayer):
-    def __init__(self, 
-                 cutoff_smooth : float=2.8, 
-                 cutoff        : float=3.5
+    def __init__(self,
+                 cutoff        : float,
+                 cutoff_smooth : float,
                  ) -> None:
         assert cutoff_smooth < cutoff, "'cutoff_smooth must smaller than cutoff"
         super(SmoothCosineCutoff, self).__init__(cutoff)
@@ -36,10 +36,28 @@ class SmoothCosineCutoff(CutoffLayer):
         return cutoffs
 
 
+# class PolynomialCutoff(CutoffLayer):
+#     def forward(self, 
+#                 distances : torch.Tensor,
+#                 ) -> torch.Tensor:
+#         cutoffs = (1.0 - (distances / self.cutoff) ** 2) ** 3
+#         cutoffs *= (distances < self.cutoff).float()
+#         return cutoffs
+
 class PolynomialCutoff(CutoffLayer):
+    def __init__(self, 
+                 cutoff   : float,
+                 p        : int,
+                 ) -> None:
+        super(PolynomialCutoff, self).__init__(cutoff)
+        self.register_buffer("p", torch.tensor(p).float())
+
     def forward(self, 
                 distances : torch.Tensor,
                 ) -> torch.Tensor:
-        cutoffs = (1.0 - (distances / self.cutoff) ** 2) ** 3
-        cutoffs *= (distances < self.cutoff).float()
+        x = distances / self.cutoff
+        cutoffs = 1.0 - (self.p + 1) * (self.p + 2) / 2 * torch.pow(x, self.p)\
+                      + self.p * (self.p + 2) * torch.pow(x, self.p + 1)\
+                      - self.p * (self.p + 1) / 2 * torch.pow(x, self.p + 2)
+        cutoffs *= (x < 1).float()
         return cutoffs

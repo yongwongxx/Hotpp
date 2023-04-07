@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from typing import Dict
+from typing import Dict, Optional
 
 
 __all__ = ["RadialLayer",
@@ -8,17 +8,7 @@ __all__ = ["RadialLayer",
            "CutoffLayer",
            "TensorActivateLayer",
            ]
-
-
-class RadialLayer(nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        
-    def forward(self,
-                distances: torch.Tensor,
-                ) -> torch.Tensor:
-        raise NotImplementedError()
-    
+   
 
 class EmbeddingLayer(nn.Module):
     def __init__(self) -> None:
@@ -38,7 +28,7 @@ class EmbeddingLayer(nn.Module):
 
 class CutoffLayer(nn.Module):
     def __init__(self,
-                 cutoff : float=3.5,
+                 cutoff : float,
                  ) -> None:
         super().__init__()
         self.register_buffer("cutoff", torch.tensor(cutoff).float())
@@ -46,6 +36,29 @@ class CutoffLayer(nn.Module):
     def forward(self,
                 ):
         raise NotImplementedError(f"{self.__class__.__name__} must have 'forward'!")
+
+
+class RadialLayer(nn.Module):
+    def __init__(self, 
+                 n_features : int,
+                 cutoff_fn  : Optional[CutoffLayer]=None) -> None:
+        super().__init__()
+        self.n_features = n_features
+        self.cutoff_fn = cutoff_fn or nn.Identity()
+
+    def radial(self,
+               d: torch.Tensor,  # [n, 1]
+               ) -> torch.Tensor:
+        raise NotImplementedError(f"{self.__class__.__name__} must have 'radial'!")
+
+    def forward(self,
+                distances: torch.Tensor,
+                ) -> torch.Tensor:
+        d = distances.unsqueeze(-1)
+        return self.radial(d) * self.cutoff_fn(d)
+
+    def replicate(self):
+        raise NotImplementedError(f"{self.__class__.__name__} must have 'replicate'!")
 
 
 class TensorActivateLayer(nn.Module):
