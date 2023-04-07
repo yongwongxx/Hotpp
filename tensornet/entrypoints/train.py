@@ -185,9 +185,9 @@ def train(model, loss_calculator, optimizer, lr_scheduler, ema, train_loader, te
             t1, prop_loss1 = eval(model, p_dict["Train"]['targetProp'], loss_calculator, train_loader)
             if p_dict["Train"]["evalTest"]:
                 if ema:
-                    t2, prop_loss2 = eval(model, p_dict["Train"]['targetProp'], loss_calculator, test_loader)
-                else:
                     t2, prop_loss2 = eval(ema, p_dict["Train"]['targetProp'], loss_calculator, test_loader)
+                else:
+                    t2, prop_loss2 = eval(model, p_dict["Train"]['targetProp'], loss_calculator, test_loader)
             else:
                 t2, prop_loss2 = t1, prop_loss1
             content = f"{epoch:^10}|{time.time() - t:^10.2f}|{lr:^10.2e}|{t1:^10.4f}/{t2:^10.4f}"
@@ -291,7 +291,7 @@ def get_lr_scheduler(p_dict, optimizer):
     return LrScheduler(p_dict, optimizer)
 
 
-def main(*args, input_file='input.yaml', load_model=None, load_para=None, load_opt=None, **kwargs):
+def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, **kwargs):
     # Default values
     p_dict = {
         "workDir": os.getcwd(),
@@ -381,18 +381,21 @@ def main(*args, input_file='input.yaml', load_model=None, load_para=None, load_o
         model = get_model(p_dict, elements, mean, std, n_neighbor)
         model.register_buffer('all_elements', torch.tensor(elements, dtype=torch.long))
         model.register_buffer('cutoff', torch.tensor(p_dict["cutoff"], dtype=torch.float64))
-        if load_para is not None:
-            model.load_state_dict(torch.load('model_state_dict.pt'))
-    log.info(" Network Architecture ".center(80, "="))
-    log.info(model)
-    log.info(f"Number of parameters: {sum([p.numel() for p in model.parameters()])}")
-    
+
     optimizer = get_optimizer(p_dict, model)
     lr_scheduler = get_lr_scheduler(p_dict, optimizer)
+    if load_checkpoint is not None:
+        state_dict = torch.load(load_checkpoint)
+        model.load_state_dict(state_dict["model"])
+        optimizer.load_state_dict(state_dict["optimizer"])
+        lr_scheduler.load_state_dict(state_dict["lr_scheduler"])
 
-    log.info(" Optimizer ".center(80, "="))
+    log.info(" Network Architecture ".center(100, "="))
+    log.info(model)
+    log.info(f"Number of parameters: {sum([p.numel() for p in model.parameters()])}")
+    log.info(" Optimizer ".center(100, "="))
     log.info(optimizer)
-    log.info(" LRScheduler ".center(80, "="))
+    log.info(" LRScheduler ".center(100, "="))
     log.info(lr_scheduler)
 
     ema_decay = p_dict["Train"]["emaDecay"]
@@ -403,9 +406,7 @@ def main(*args, input_file='input.yaml', load_model=None, load_para=None, load_o
         # log.info(ema)
     else:
         ema = None
-    log.info("=" * 80)
-    if load_opt is not None:
-        optimizer.load_state_dict(torch.load('optimizer_state_dict.pt'))
+    log.info("=" * 100)
     loss_calculator = get_loss_calculator(p_dict)
     train(model, loss_calculator, optimizer, lr_scheduler, ema, train_loader, test_loader, p_dict)
 
