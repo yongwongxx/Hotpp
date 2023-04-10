@@ -88,7 +88,8 @@ def get_model(p_dict, elements, mean, std, n_neighbor):
                     target_way=target_way,
                     mean=mean,
                     std=std,
-                    norm_factor=n_neighbor).to(p_dict['device'])
+                    norm_factor=n_neighbor,
+                    mode=model_dict['mode']).to(p_dict['device'])
     return model
 
 
@@ -270,7 +271,9 @@ def get_lr_scheduler(p_dict, optimizer):
                 self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,
                                                                                factor=lr_dict['lrFactor'],
                                                                                patience=lr_dict['patience'])
-            elif lr_dict['type'] != "constant":
+            elif lr_dict['type'] == "constant":
+                self.lr_scheduler = None
+            else:
                 raise Exception("Unsupported LrScheduler: {}!".format(lr_dict['type']))
 
         def step(self, metrics=None, epoch=None):
@@ -280,10 +283,12 @@ def get_lr_scheduler(p_dict, optimizer):
                 self.lr_scheduler.step(metrics=metrics, epoch=epoch)
 
         def state_dict(self):
-            return {key: value for key, value in self.lr_scheduler.__dict__.items() if key != 'optimizer'}
+            if self.lr_scheduler:
+                return {key: value for key, value in self.lr_scheduler.__dict__.items() if key != 'optimizer'}
 
         def load_state_dict(self, state_dict):
-            self.lr_scheduler.__dict__.update(state_dict)
+            if self.lr_scheduler:
+                self.lr_scheduler.__dict__.update(state_dict)
 
         def __repr__(self):
             return self.lr_scheduler.__repr__()
@@ -304,6 +309,7 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
             "testBatch": 32,
         },
         "Model": {
+            "mode": "normal",
             "activateFn": "silu",
             "nEmbedding": 64,
             "nLayer": 5,
@@ -395,8 +401,8 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
     log.info(f"Number of parameters: {sum([p.numel() for p in model.parameters()])}")
     log.info(" Optimizer ".center(100, "="))
     log.info(optimizer)
-    log.info(" LRScheduler ".center(100, "="))
-    log.info(lr_scheduler)
+    # log.info(" LRScheduler ".center(100, "="))
+    # log.info(lr_scheduler)
 
     ema_decay = p_dict["Train"]["emaDecay"]
     if ema_decay > 0:

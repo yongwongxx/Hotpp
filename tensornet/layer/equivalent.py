@@ -9,7 +9,7 @@ from torch import nn
 from typing import Dict, Callable, Union
 from .base import RadialLayer, CutoffLayer
 from .activate import TensorActivateDict
-from ..utils import find_distances, expand_to, multi_outer_product, _scatter_add
+from ..utils import find_distances, expand_to, multi_outer_product, _scatter_add, find_moment
 
 
 # input_tensors be like:
@@ -50,6 +50,77 @@ class TensorLinear(nn.Module):
             output_tensor = self.linear(input_tensor)
             output_tensor = torch.transpose(output_tensor, 1, -1)
         return output_tensor
+
+
+class SimpleTensorAggregateLayer(nn.Module):
+    """ 
+    In this type of layer, the rbf mixing only different if r_way different
+    """
+    def __init__(self, 
+                 radial_fn      : RadialLayer,
+                 n_channel      : int,
+                 max_in_way     : int=2,
+                 max_out_way    : int=2,
+                 max_r_way      : int=2,
+                 norm_factor    : float=1.,
+                 ) -> None:
+        super().__init__()
+        # get all possible "i, r, o" combinations
+        self.rbf_mixing_dict = nn.ModuleDict()
+        self.max_r_way = max_r_way
+        self.inout_combinations = {r_way: [] for r_way in range(max_r_way + 1)}
+        for r_way in range(max_r_way + 1):
+            self.rbf_mixing_dict[str(r_way)] = nn.Linear(radial_fn.n_features, n_channel, bias=False)
+            for in_way in range(max_in_way + 1):
+                for z_way in range(min(in_way, r_way) + 1):
+                    out_way = in_way + r_way - 2 * z_way
+                    if out_way <= max_out_way:
+                        self.inout_combinations[r_way].append((in_way, out_way))
+        self.radial_fn = radial_fn
+        self.register_buffer("norm_factor", torch.tensor(norm_factor).float())
+
+    def forward(self,
+                input_tensors : Dict[int, torch.Tensor],
+                batch_data    : Dict[str, torch.Tensor],
+                ) -> Dict[int, torch.Tensor]:
+        # These 3 rows are required by torch script
+        output_tensors = torch.jit.annotate(Dict[int, torch.Tensor], {})
+        idx_i = batch_data['edge_index'][0]
+        idx_j = batch_data['edge_index'][1]
+
+        n_atoms = batch_data['atomic_number'].shape[0]
+        _, dij, uij = find_distances(batch_data)
+        rbf_ij = self.radial_fn(dij)    # [n_edge, n_rbf]
+
+        for r_way in range(self.max_r_way + 1):
+            fn = self.rbf_mixing_dict[str(r_way)](rbf_ij) # [n_edge, n_channel]
+            # TODO: WHY!!!!!!!!!! CAO!
+            # fn = fn * input_tensor_dict[0]
+            moment_tensor = find_moment(batch_data, r_way)  # [n_edge, n_dim, ...]
+            filter_tensor_ = moment_tensor.unsqueeze(1) * expand_to(fn, n_dim=r_way + 2) # [n_edge, n_channel, n_dim, n_dim, ...]
+            for in_way, out_way in self.inout_combinations[r_way]:
+                input_tensor = input_tensors[in_way][idx_j]      # [n_edge, n_channel, n_dim, n_dim, ...]
+                coupling_way = (in_way + r_way - out_way) // 2
+                # method 1 
+                n_way = in_way + r_way - coupling_way + 2
+                input_tensor  = expand_to(input_tensor, n_way, dim=-1)
+                filter_tensor = expand_to(filter_tensor_, n_way, dim=2)
+                output_tensor = input_tensor * filter_tensor
+                # input_tensor:  [n_edge, n_channel, n_dim, n_dim, ...,     1] 
+                # filter_tensor: [n_edge, n_channel,     1,     1, ..., n_dim]  
+                # with (in_way + r_way - coupling_way) dim after n_channel
+                # We should sum up (coupling_way) n_dim
+                if coupling_way > 0:
+                    sum_axis = [i for i in range(in_way - coupling_way + 2, in_way + 2)]
+                    output_tensor = torch.sum(output_tensor, dim=sum_axis)
+                output_tensor = _scatter_add(output_tensor, idx_i, dim_size=n_atoms) / self.norm_factor
+                # output_tensor = segment_coo(output_tensor, idx_i, dim_size=batch_data.num_nodes, reduce="sum")
+
+                if out_way not in output_tensors:
+                    output_tensors[out_way] = output_tensor
+                else:
+                    output_tensors[out_way] += output_tensor
+        return output_tensors
 
 
 class TensorAggregateLayer(nn.Module):
@@ -94,7 +165,7 @@ class TensorAggregateLayer(nn.Module):
             fn = self.rbf_mixing_dict[str((in_way, r_way, out_way))](rbf_ij) # [n_edge, n_channel]
             # TODO: WHY!!!!!!!!!! CAO!
             # fn = fn * input_tensor_dict[0]
-            moment_tensor = multi_outer_product(uij, r_way)  # [n_edge, n_dim, ...]
+            moment_tensor = find_moment(batch_data, r_way)  # [n_edge, n_dim, ...]
             filter_tensor = moment_tensor.unsqueeze(1) * expand_to(fn, n_dim=r_way + 2) # [n_edge, n_channel, n_dim, n_dim, ...]
             input_tensor = input_tensors[in_way][idx_j]      # [n_edge, n_channel, n_dim, n_dim, ...]
             coupling_way = (in_way + r_way - out_way) // 2
@@ -176,14 +247,23 @@ class SOnEquivalentLayer(nn.Module):
                  output_dim     : int,
                  norm_factor    : float=1.0,
                  activate_fn    : str='jilu',
+                 mode           : str='normal',
                  ) -> None:
         super().__init__()
-        self.tensor_aggregate = TensorAggregateLayer(radial_fn=radial_fn,
-                                                     n_channel=input_dim,
-                                                     max_in_way=max_in_way,
-                                                     max_out_way=max_out_way, 
-                                                     max_r_way=max_r_way,
-                                                     norm_factor=norm_factor,)
+        if mode == 'normal':
+            self.tensor_aggregate = TensorAggregateLayer(radial_fn=radial_fn,
+                                                        n_channel=input_dim,
+                                                        max_in_way=max_in_way,
+                                                        max_out_way=max_out_way, 
+                                                        max_r_way=max_r_way,
+                                                        norm_factor=norm_factor,)
+        elif mode == 'simple':
+            self.tensor_aggregate = SimpleTensorAggregateLayer(radial_fn=radial_fn,
+                                                               n_channel=input_dim,
+                                                               max_in_way=max_in_way,
+                                                               max_out_way=max_out_way, 
+                                                               max_r_way=max_r_way,
+                                                               norm_factor=norm_factor,)
         # input for SelfInteractionLayer and NonLinearLayer is the output of TensorAggregateLayer
         # so the max_in_way should equal to max_out_way of TensorAggregateLayer
         self.self_interact = SelfInteractionLayer(input_dim=input_dim, 
