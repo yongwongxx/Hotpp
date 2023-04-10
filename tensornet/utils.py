@@ -79,6 +79,15 @@ def find_distances(batch_data  : Dict[str, torch.Tensor],) -> Tuple[torch.Tensor
     return batch_data['rij'], batch_data['dij'], batch_data['uij']
 
 
+def find_moment(batch_data  : Dict[str, torch.Tensor],
+                n_way       : int
+                ) -> torch.Tensor:
+    if 'moment' + str(n_way) not in batch_data:
+        find_distances(batch_data)
+        batch_data['moment' + str(n_way)] = multi_outer_product(batch_data['uij'], n_way)
+    return batch_data['moment' + str(n_way)]
+
+
 def get_elements(frames):
     elements = set()
     for atoms in frames:

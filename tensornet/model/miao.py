@@ -23,6 +23,7 @@ class MiaoNet(AtomicModule):
                  mean            : float=0.,
                  std             : float=1.,
                  norm_factor     : float=1.,
+                 mode            : str='normal',
                  ):
         super().__init__(mean=mean, std=std)
         self.embedding_layer = embedding_layer
@@ -39,7 +40,8 @@ class MiaoNet(AtomicModule):
                                max_out_way=max_out_way[i],
                                input_dim=hidden_nodes[i],
                                output_dim=hidden_nodes[i + 1],
-                               norm_factor=norm_factor) for i in range(n_layers)])
+                               norm_factor=norm_factor,
+                               mode=mode) for i in range(n_layers)])
         self.readout_layer = ReadoutLayer(n_dim=hidden_nodes[-1],
                                           target_way=target_way, 
                                           activate_fn=activate_fn)
