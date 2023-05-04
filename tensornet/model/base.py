@@ -42,6 +42,8 @@ class AtomicModule(nn.Module):
         #######################################
         if 'dipole' in output_tensors:
             batch_data['dipole_p'] = _scatter_add(output_tensors['dipole'], batch_data['batch'])
+        if 'direct_forces' in output_tensors:
+            batch_data['forces_p'] = output_tensors['direct_forces'] * self.std
         if ('site_energy' in properties) or ('energies' in properties):
             batch_data['site_energy_p'] = site_energy
         if 'energy' in properties:

@@ -33,7 +33,7 @@ class MiaoNet(AtomicModule):
         hidden_nodes = [embedding_layer.n_channel] + expand_para(output_dim, n_layers)
         self.son_equivalent_layers = nn.ModuleList([
             SOnEquivalentLayer(activate_fn=activate_fn,
-                               radial_fn=radial_fn.replicate(),  
+                               radial_fn=radial_fn.replicate(),
                                # Use factory method, so the radial_fn in each layer are different
                                max_r_way=max_r_way[i],
                                max_in_way=max_in_way[i],
@@ -43,7 +43,7 @@ class MiaoNet(AtomicModule):
                                norm_factor=norm_factor,
                                mode=mode) for i in range(n_layers)])
         self.readout_layer = ReadoutLayer(n_dim=hidden_nodes[-1],
-                                          target_way=target_way, 
+                                          target_way=target_way,
                                           activate_fn=activate_fn)
 
     def calculate(self,

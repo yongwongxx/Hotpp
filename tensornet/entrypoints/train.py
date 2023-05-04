@@ -75,6 +75,9 @@ def get_model(p_dict, elements, mean, std, n_neighbor):
         target_way["site_energy"] = 0
     if "dipole" in target:
         target_way["dipole"] = 1
+    if "direct_forces" in target:
+        assert "forces" not in target_way, "Cannot learn forces and direct_forces at the same time"
+        target_way["direct_forces"] = 1
     cut_fn = get_cutoff(p_dict)
     emb = AtomicEmbedding(elements, model_dict['nEmbedding'])  # only support atomic embedding now
     radial_fn = get_radial(p_dict, cut_fn)
@@ -138,6 +141,8 @@ def get_loss_calculator(p_dict):
     target = train_dict['targetProp']
     weight = train_dict['weight']
     weights = {p: w for p, w in zip(target, weight)}
+    if "direct_forces" in weights:
+        weights["forces"] = weights.pop("direct_forces") # direct forces use the same key of forces
     if train_dict['allowMissing']:
         return MissingValueLoss(weights, loss_fn=F.mse_loss)
     else:
@@ -194,6 +199,7 @@ def train(model, loss_calculator, optimizer, lr_scheduler, ema, train_loader, te
             content = f"{epoch:^10}|{time.time() - t:^10.2f}|{lr:^10.2e}|{t1:^10.4f}/{t2:^10.4f}"
             t = time.time()
             for prop in p_dict["Train"]['targetProp']:
+                prop = "forces" if prop == "direct_forces" else prop
                 content += f"|{prop_loss1[prop]:^10.4f}/{prop_loss2[prop]:^10.4f}"
             log.info(content)
             if t2 < min_loss:
@@ -331,12 +337,12 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
         "Train": {
             "allowMissing": False,
             "targetProp": ["energy", "forces"],
-            "weight": [0.1, 1.0, 0.0],
+            "weight": [0.1, 1.0],
             "logInterval": 100,
             "saveInterval": 500,
             "saveStart": 1000,
             "evalTest": True,
-            "maxGradNorm": 10.,
+            "maxGradNorm": None,
             "Optimizer": {
                 "type": "Adam",
                 "amsGrad": True,
@@ -345,8 +351,8 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
                 },
             "LrScheduler": {
                 "type": "constant",
-            "emaDecay": 0., 
-            }
+            },
+            "emaDecay": 0.,
         },
     }
     with open(input_file) as f:
