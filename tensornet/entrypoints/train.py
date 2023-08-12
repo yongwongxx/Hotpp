@@ -319,6 +319,7 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
             "path": os.getcwd(),
             "trainBatch": 32,
             "testBatch": 32,
+            "std": "force",
         },
         "Model": {
             "mode": "normal",
@@ -384,14 +385,16 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
         mean = dataset.per_energy_mean.detach().cpu().numpy()
     except:
         mean = 0.
-    try:
+    if p_dict["Data"]["std"] == "force": 
         std = dataset.forces_std.detach().cpu().numpy()
-    except:
-        std = 1.
+    elif p_dict["Data"]["std"] == "energy":
+        std = dataset.per_energy_std.detach().cpu().numpy()
+    else:
+        std = p_dict["Data"]["std"]
     n_neighbor = dataset.n_neighbor_mean
     elements = list(dataset.all_elements.detach().cpu().numpy())
-    log.info(f"energy_mean  : {mean}")
-    log.info(f"forces_std   : {std}")
+    log.info(f"mean  : {mean}")
+    log.info(f"std   : {std}")
     log.info(f"n_neighbor   : {n_neighbor}")
     log.info(f"all_elements : {elements}")
     if load_model is not None:
