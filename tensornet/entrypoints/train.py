@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch.optim.swa_utils import AveragedModel
 from ase.data import atomic_numbers
 from ..utils import setup_seed
-from ..loss import Loss, MissingValueLoss
+from ..loss import Loss, MissingValueLoss, ForceScaledLoss
 from ..model import MiaoNet
 from ..layer.cutoff import *
 from ..layer.embedding import AtomicEmbedding
@@ -144,9 +144,15 @@ def get_loss_calculator(p_dict):
     if "direct_forces" in weights:
         weights["forces"] = weights.pop("direct_forces") # direct forces use the same key of forces
     if train_dict['allowMissing']:
+        # TODO: rewrite loss function
+        if train_dict['forceScale'] > 0:
+            raise Exception("Now forceScale not support allowMissing!")
         return MissingValueLoss(weights, loss_fn=F.mse_loss)
     else:
-        return Loss(weights, loss_fn=F.mse_loss)
+        if train_dict['forceScale'] > 0:
+            return ForceScaledLoss(weights, loss_fn=F.mse_loss, scaled=train_dict['forceScale'])
+        else:
+            return Loss(weights, loss_fn=F.mse_loss)
 
 
 def eval(model, properties, loss_calculator, data_loader):
@@ -338,6 +344,7 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
             "allowMissing": False,
             "targetProp": ["energy", "forces"],
             "weight": [0.1, 1.0],
+            "forceScale": 0.,
             "logInterval": 100,
             "saveInterval": 500,
             "saveStart": 1000,

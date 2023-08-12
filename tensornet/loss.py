@@ -46,6 +46,26 @@ class Loss:
                             batch_data[f'{prop}_t'] / n_atoms)
 
 
+class ForceScaledLoss(Loss):
+    
+    def __init__(self,
+                 weight  : Dict[str, float]={"energy": 1.0, "forces": 1.0},
+                 loss_fn : Callable=F.mse_loss,
+                 scaled  : float=1.0,
+                 ) -> None:
+        super().__init__(weight, loss_fn)
+        self.scaled = scaled
+
+    def atom_prop_loss(self,
+                       batch_data : Dict[str, torch.Tensor],
+                       prop       : str,
+                       ) -> torch.Tensor:
+        if 'prop' != 'forces':
+            return super().atom_prop_loss(batch_data, prop)
+        reweight = self.scaled / (torch.norm(batch_data['force_t'], dim=1) + self.scaled)
+        return self.loss_fn(batch_data[f'forces_p'] * reweight, batch_data[f'forces_t'] * reweight)
+
+
 class MissingValueLoss(Loss):
 
     def atom_prop_loss(self,
