@@ -32,8 +32,8 @@ class AtomsData(InMemoryDataset):
             'site_energy' : (len(atoms)),
             'energy'      : (1),
             'forces'      : (len(atoms), dim),
-            'virial'      : (1, dim, dim), 
-            'dipole'      : (1, dim), 
+            'virial'      : (1, dim, dim),
+            'dipole'      : (1, dim),
         }
         for key in ['site_energy', 'energy', 'forces', 'virial', 'dipole']:
             if key in atoms.info:
@@ -56,17 +56,17 @@ class AtomsData(InMemoryDataset):
     @property
     def per_energy_std(self):
         per_energy = self.data["energy_t"] / self.data["n_atoms"]
-        return torch.std(per_energy)   
+        return torch.std(per_energy)
 
     @property
     def forces_std(self):
         return torch.std(self.data["forces_t"])
-    
+
     @property
     def n_neighbor_mean(self):
         n_neighbor = self.data['edge_index'].shape[1] / len(self.data['x'])
         return n_neighbor
-    
+
     @property
     def all_elements(self):
         return torch.unique(self.data['atomic_number'])

@@ -34,7 +34,8 @@ class TensorRelu(TensorActivateLayer):
     def tensor_activate(self, input_tensor: torch.Tensor, way: int) -> torch.Tensor:
         input_tensor_ = input_tensor.reshape(input_tensor.shape[0], input_tensor.shape[1], -1)
         norm = self.weights * torch.sum(input_tensor_ ** 2, dim=2) + self.bias
-        factor = torch.where(norm == 0, torch.ones_like(norm), norm)
+        # factor = torch.where(norm == 0, torch.ones_like(norm), norm)
+        factor = torch.heaviside(norm, torch.zeros_like(norm))
         return expand_to(factor, 2 + way) * input_tensor
 
 
