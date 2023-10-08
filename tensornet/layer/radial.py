@@ -12,7 +12,7 @@ __all__ = ["ChebyshevPoly",
 
 
 class ChebyshevPoly(RadialLayer):
-    def __init__(self, 
+    def __init__(self,
                  r_max      : float,
                  r_min      : float=0.5,
                  n_max      : int=8,

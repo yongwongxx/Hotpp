@@ -10,7 +10,7 @@ __all__ = ["ReadoutLayer"]
 
 class ReadoutLayer(nn.Module):
 
-    def __init__(self, 
+    def __init__(self,
                  n_dim       : int,
                  target_way  : Dict[str, int]={"site_energy": 0},
                  activate_fn : str="jilu",
@@ -26,7 +26,7 @@ class ReadoutLayer(nn.Module):
             for prop, way in target_way.items()
             })
 
-    def forward(self, 
+    def forward(self,
                 input_tensors : Dict[int, torch.Tensor],
                 ) -> Dict[str, torch.Tensor]:
         output_tensors = torch.jit.annotate(Dict[str, torch.Tensor], {})

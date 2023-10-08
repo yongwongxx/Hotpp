@@ -1,44 +1,70 @@
-from .base import AtomsData
-from ..utils import progress_bar
+from .base import AtomsDataset
 from typing import List, Optional
 from ase import Atoms
 from ase.io import read
-import torch
-import os
+from ase.db import connect
 
 
-class ASEData(AtomsData):
+class ASEData(AtomsDataset):
+
     def __init__(self,
-                 frames : Optional[List[Atoms]]=None,
-                 root   : Optional[str]=None,
-                 name   : Optional[str]=None,
-                 format : Optional[str]=None,
-                 cutoff : float=4.0,
-                 device : str="cpu",
+                 frames     : Optional[List[Atoms]]=None,
+                 indices    : Optional[List[int]]=None,
+                 properties : Optional[List[str]]=['energy', 'forces'],
+                 cutoff     : float=4.0,
                  ) -> None:
-        self.cutoff = cutoff
-        self.device = device
-        if frames is None:
-            frames = read(os.path.join(root, name), format=format, index=':')
+        super().__init__(indices=indices, cutoff=cutoff)
         self.frames = frames
-        self.name = name or "processed"
-        if root is None:
-            root = os.getcwd()
-        super().__init__(root)
-        self.data, self.slices = torch.load(self.processed_paths[0], map_location=device)
+        self.properties = properties
 
-    @property
-    def processed_file_names(self) -> str:
-        return f"{self.name}.pt"
+    def __len__(self):
+        if self.indices is None:
+            return len(self.frames)
+        else:
+            return len(self.indices)
 
-    def process(self):
-        n_data = len(self.frames)
-        data_list = []
-        for i in range(n_data):
-            progress_bar(i, n_data)
-            data = self.atoms_to_graph(self.frames[i], self.cutoff, self.device)
-            data_list.append(data)
-        torch.save(self.collate(data_list), self.processed_paths[0])
+    def __getitem__(self, idx):
+        if self.indices is not None:
+            idx = self.indices[idx]
+        data = self.atoms_to_data(self.frames[idx],
+                                  properties=self.properties,
+                                  cutoff=self.cutoff)
+        return data
 
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({len(self)}, name='{self.name}')"
+    def extend(self, frames):
+        self.frames.extend(frames)
+
+
+class ASEDBData(AtomsDataset):
+
+    def __init__(self,
+                 datapath   : Optional[List[Atoms]]=None,
+                 indices    : Optional[List[int]]=None,
+                 properties : Optional[List[str]]=['energy', 'forces'],
+                 cutoff     : float=4.0,
+                 ) -> None:
+        super().__init__(indices=indices, cutoff=cutoff)
+        self.datapath = datapath
+        self.conn = connect(self.datapath, use_lock_file=False)
+        self.properties = properties
+
+    def __len__(self):
+        if self.indices is None:
+            return self.conn.count()
+        else:
+            return len(self.indices)
+
+    def __getitem__(self, idx):
+        if self.indices is not None:
+            idx = int(self.indices[idx])
+        row = self.conn.get(idx + 1)
+        atoms = Atoms(numbers=row['numbers'],
+                      cell=row['cell'],
+                      positions=row['positions'],
+                      pbc=row['pbc'],
+                      info=row.data
+                      )
+        data = self.atoms_to_data(atoms,
+                                  properties=self.properties,
+                                  cutoff=self.cutoff)
+        return data

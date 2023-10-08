@@ -62,22 +62,22 @@ def parse_args():
     # eval
     parser_eval = subparsers.add_parser(
         "eval",
-        help="train",
+        help="eval",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser_eval.add_argument(
         "-m",
-        "--model",
-        type=str, 
+        "--modelfile",
+        type=str,
         default="model.pt",
         help="model"
     )
     parser_eval.add_argument(
-        "-c",
-        "--cutoff",
-        type=float, 
+        "-i",
+        "--indices",
+        type=str,
         default=None,
-        help="cutoff"
+        help="indices"
     )
     parser_eval.add_argument(
         "--device",
@@ -87,22 +87,22 @@ def parse_args():
     )
     parser_eval.add_argument(
         "-d",
-        "--dataset",
-        type=str, 
+        "--datafile",
+        type=str,
         default="data.traj",
         help="dataset"
     )
     parser_eval.add_argument(
         "-f",
         "--format",
-        type=str, 
+        type=str,
         default=None,
         help="format"
     )
     parser_eval.add_argument(
         "-b",
         "--batchsize",
-        type=int, 
+        type=int,
         default=32,
         help="batchsize"
     )
@@ -113,6 +113,17 @@ def parse_args():
         nargs="+",
         default=["energy", "forces"],
         help="target properties"
+    )
+    parser_eval.add_argument(
+        "--num_workers",
+        type=int,
+        default=4,
+        help="num workder"
+    )
+    parser_eval.add_argument(
+        "--pin_memory",
+        action="store_true",
+        help="pin memory"
     )
     # clean
     parser_clean = subparsers.add_parser(
