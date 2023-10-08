@@ -13,14 +13,14 @@ def setup_seed(seed):
     torch.backends.cudnn.deterministic = True
 
 
-def expand_to(t     : torch.Tensor, 
-              n_dim : int, 
+def expand_to(t     : torch.Tensor,
+              n_dim : int,
               dim   : int=-1) -> torch.Tensor:
     """Expand dimension of the input tensor t at location 'dim' until the total dimention arrive 'n_dim'
 
     Args:
         t (torch.Tensor): Tensor to expand
-        n_dim (int): target dimension 
+        n_dim (int): target dimension
         dim (int, optional): location to insert axis. Defaults to -1.
 
     Returns:
@@ -31,7 +31,7 @@ def expand_to(t     : torch.Tensor,
     return t
 
 
-def multi_outer_product(v: torch.Tensor, 
+def multi_outer_product(v: torch.Tensor,
                         n: int) -> torch.Tensor:
     """Calculate 'n' times outer product of vector 'v'
 
@@ -51,7 +51,7 @@ def multi_outer_product(v: torch.Tensor,
 def add_scaling(batch_data  : Dict[str, torch.Tensor],) -> Dict[str, torch.Tensor]:
     if 'has_add_scaling' not in batch_data:
         idx_m = batch_data['batch']
-        idx_i = batch_data['edge_index'][0]
+        idx_i = batch_data['idx_i']
         batch_data['coordinate'] = torch.matmul(batch_data['coordinate'][:, None, :], 
                                                 batch_data['scaling'][idx_m]).squeeze(1)
         if 'offset' in batch_data:
@@ -63,11 +63,11 @@ def add_scaling(batch_data  : Dict[str, torch.Tensor],) -> Dict[str, torch.Tenso
 
 def find_distances(batch_data  : Dict[str, torch.Tensor],) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if 'rij' not in batch_data:
-        idx_i = batch_data["edge_index"][0]
+        idx_i = batch_data["idx_i"]
         if 'ghost_neigh' in batch_data:                  # neighbor for lammps calculation
             idx_j = batch_data["ghost_neigh"]
         else:
-            idx_j = batch_data["edge_index"][1]
+            idx_j = batch_data["idx_j"]
         if 'offset' in batch_data:
             batch_data['rij'] = batch_data['coordinate'][idx_j] + batch_data['offset'] - batch_data['coordinate'][idx_i]
         else:
@@ -170,3 +170,27 @@ def progress_bar(i: int, n: int, interval: int=100):
     if i % interval == 0:
         ii = int(i / n * 100)
         print(f"\r{ii}%[{'*' * ii}{'-' * (100 - ii)}]", end=' ', file=sys.stderr)
+
+
+@torch.jit.script
+def _aggregate(moment_tensor: torch.Tensor,
+               fn : torch.Tensor,
+               input_tensor:torch.Tensor,
+               in_way : int,
+               r_way : int,
+               out_way: int
+               ) -> torch.Tensor:
+    filter_tensor = moment_tensor.unsqueeze(1) * expand_to(fn, n_dim=r_way + 2) # [n_edge, n_channel, n_dim, n_dim, ...]
+    coupling_way = (in_way + r_way - out_way) // 2
+    n_way = in_way + r_way - coupling_way + 2
+    input_tensor  = expand_to(input_tensor, n_way, dim=-1)
+    filter_tensor = expand_to(filter_tensor, n_way, dim=2)
+    output_tensor = input_tensor * filter_tensor
+    # input_tensor:  [n_edge, n_channel, n_dim, n_dim, ...,     1] 
+    # filter_tensor: [n_edge, n_channel,     1,     1, ..., n_dim]  
+    # with (in_way + r_way - coupling_way) dim after n_channel
+    # We should sum up (coupling_way) n_dim
+    if coupling_way > 0:
+        sum_axis = [i for i in range(in_way - coupling_way + 2, in_way + 2)]
+        output_tensor = torch.sum(output_tensor, dim=sum_axis)
+    return output_tensor

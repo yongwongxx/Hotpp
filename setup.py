@@ -19,7 +19,7 @@ setup(
         "ase",
         "pyyaml",
         "torch",
-        "torch-geometric",
+        "lightning",
     ],
     license="MIT",
     description="MiaoNet: Moment tensor InterAggregate Operation Net",

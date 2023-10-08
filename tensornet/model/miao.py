@@ -26,6 +26,7 @@ class MiaoNet(AtomicModule):
                  mode            : str='normal',
                  ):
         super().__init__(mean=mean, std=std)
+        self.register_buffer("norm_factor", torch.tensor(norm_factor).float())
         self.embedding_layer = embedding_layer
         max_r_way = expand_para(max_r_way, n_layers)
         max_out_way = expand_para(max_out_way, n_layers)

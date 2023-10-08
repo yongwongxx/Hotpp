@@ -165,8 +165,9 @@ void PairMIAO::compute(int eflag, int vflag)
     int numneigh_atom = accumulate(numneigh, numneigh + inum , 0);
 
     std::vector<double> cart(nall * 3);
-    std::vector<long> atom_index(numneigh_atom * 2);
-    std::vector<long> ghost_neigh(numneigh_atom);
+    std::vector<long> idx_i(numneigh_atom);            // atom i
+    std::vector<long> idx_j(numneigh_atom);            // atom j
+    std::vector<long> ghost_neigh(numneigh_atom);      // ghost atom j for calculate distance
     std::vector<long> local_species(inum);
     std::vector<long> batch(nall);
     double dx, dy, dz, d2;
@@ -192,8 +193,8 @@ void PairMIAO::compute(int eflag, int vflag)
             d2 = dx * dx + dy * dy + dz * dz;
             if (d2 < cutoffsq)
             {
-                atom_index[totneigh * 2] = i;
-                atom_index[totneigh * 2 + 1] = atom->map(tag[j]);
+                idx_i[totneigh] = i;
+                idx_j[totneigh] = atom->map(tag[j]);
                 ghost_neigh[totneigh] = j;
                 ++totneigh;
             }
@@ -233,17 +234,19 @@ void PairMIAO::compute(int eflag, int vflag)
     species_file.close();
     */
     auto cart_ = torch::from_blob(cart.data(), {nall, 3}, option1).to(device, true).to(tensor_type);
-    auto atom_index_ = torch::from_blob(atom_index.data(), {totneigh, 2}, option2).transpose(1, 0).to(device, true);
+    auto idx_i_ = torch::from_blob(idx_i.data(), {totneigh}, option2).to(device, true);
+    auto idx_j_ = torch::from_blob(idx_j.data(), {totneigh}, option2).to(device, true);
     auto ghost_neigh_ = torch::from_blob(ghost_neigh.data(), {totneigh}, option2).to(device, true);
     auto local_species_ = torch::from_blob(local_species.data(), {inum}, option2).to(device, true);
     auto batch_ = torch::from_blob(batch.data(), {inum}, option2).to(device, true);
     batch_data.insert("coordinate", cart_);
     batch_data.insert("atomic_number", local_species_);
-    batch_data.insert("edge_index", atom_index_);
+    batch_data.insert("idx_i", idx_i_);
+    batch_data.insert("idx_j", idx_j_);
     batch_data.insert("batch", batch_);
     batch_data.insert("ghost_neigh", ghost_neigh_);
 
-    torch::IValue output = module.forward({batch_data, properties});
+    torch::IValue output = module.forward({batch_data, properties, false});
     results = c10::impl::toTypedDict<std::string, torch::Tensor>(output.toGenericDict());
 
     auto forces_tensor = results.at("forces_p").to(torch::kDouble).cpu().reshape({-1});

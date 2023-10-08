@@ -6,7 +6,7 @@ from tensornet.utils import _scatter_add, find_distances, add_scaling
 
 class AtomicModule(nn.Module):
 
-    def __init__(self, 
+    def __init__(self,
                  mean  : float=0.,
                  std   : float=1.,
                  ) -> None:
@@ -14,7 +14,7 @@ class AtomicModule(nn.Module):
         self.register_buffer("mean", torch.tensor(mean).float())
         self.register_buffer("std", torch.tensor(std).float())
 
-    def forward(self, 
+    def forward(self,
                 batch_data   : Dict[str, torch.Tensor],
                 properties   : Optional[List[str]]=None,
                 create_graph : bool=True,
@@ -42,6 +42,13 @@ class AtomicModule(nn.Module):
         #######################################
         if 'dipole' in output_tensors:
             batch_data['dipole_p'] = _scatter_add(output_tensors['dipole'], batch_data['batch'])
+        if 'polar_diagonal' in output_tensors:
+            polar_diagonal = _scatter_add(output_tensors['polar_diagonal'], batch_data['batch'])
+            polar_off_diagonal = _scatter_add(output_tensors['polar_off_diagonal'], batch_data['batch'])
+            # polar_off_diagonal = polar_off_diagonal + polar_off_diagonal.transpose(1, 2)
+            shape = polar_off_diagonal.shape
+            batch_data['polarizability_p'] = polar_diagonal.unsqueeze(-1).unsqueeze(-1) * torch.eye(shape[1], device=polar_diagonal.device).expand(*shape) + polar_off_diagonal
+
         if 'direct_forces' in output_tensors:
             batch_data['forces_p'] = output_tensors['direct_forces'] * self.std
         if ('site_energy' in properties) or ('energies' in properties):

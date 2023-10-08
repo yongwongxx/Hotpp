@@ -104,7 +104,8 @@ class BehlerG1(EmbeddingLayer):
                 batch_data  : Dict[str, torch.Tensor],
                 ) -> torch.Tensor:
         n_atoms = batch_data['atomic_number'].shape[0]
-        idx_i, idx_j = batch_data['edge_index']
+        idx_i = batch_data['idx_i']
+        idx_j = batch_data['idx_j']
         _, dij, _ = find_distances(batch_data)
         zij = batch_data['atomic_number'][idx_j].unsqueeze(-1)                      # [n_edge, 1]
         dij = dij.unsqueeze(-1)

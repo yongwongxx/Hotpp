@@ -50,6 +50,7 @@ endif()
 include(LAMMPSUtils)
 
 get_lammps_version(${LAMMPS_SOURCE_DIR}/version.h LAMMPS_VERSION_NUMBER)
+add_compile_definitions(LAMMPS_VERSION_NUMBER=${LAMMPS_VERSION_NUMBER})
 
 include(PreventInSourceBuilds)
 

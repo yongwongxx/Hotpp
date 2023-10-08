@@ -1,87 +1,91 @@
 import torch
-import os
+import copy
+import abc
 import numpy as np
 from tensornet.utils import EnvPara
-from torch_geometric.data import Data, InMemoryDataset
+from torch.utils.data import Dataset
 from ase.neighborlist import neighbor_list
+from typing import Optional, List
 
+# TODO: offset and scaling for different condition
+class AtomsDataset(Dataset, abc.ABC):
 
-class AtomsData(InMemoryDataset):
     @staticmethod
-    def atoms_to_graph(atoms, cutoff, device='cpu'):
+    def atoms_to_data(atoms, cutoff, properties=['energy', 'forces']):
         dim = len(atoms.get_cell())
         idx_i, idx_j, offset = neighbor_list("ijS", atoms, cutoff, self_interaction=False)
-        bonds = np.array([idx_i, idx_j])
         offset = np.array(offset) @ atoms.get_cell()
-        index = torch.arange(len(atoms), dtype=torch.long, device=device)
-        atomic_number = torch.tensor(atoms.numbers, dtype=torch.long, device=device)
-        edge_index = torch.tensor(bonds, dtype=torch.long, device=device)
-        offset = torch.tensor(offset, dtype=EnvPara.FLOAT_PRECISION, device=device)
-        coordinate = torch.tensor(atoms.positions, dtype=EnvPara.FLOAT_PRECISION, device=device)
-        scaling = torch.eye(dim, dtype=EnvPara.FLOAT_PRECISION, device=device).view(1, dim, dim)
-        n_atoms = torch.tensor(len(atoms), dtype=EnvPara.FLOAT_PRECISION, device=device)
-        graph = Data(x=index,
-                    atomic_number=atomic_number, 
-                    edge_index=edge_index,
-                    offset=offset,
-                    coordinate=coordinate,
-                    n_atoms=n_atoms,
-                    scaling=scaling,
-                    )
+
+        data = {
+            "atomic_number": torch.tensor(atoms.numbers, dtype=torch.long),
+            "idx_i": torch.tensor(idx_i, dtype=torch.long),
+            "idx_j": torch.tensor(idx_j, dtype=torch.long),
+            "coordinate": torch.tensor(atoms.positions, dtype=EnvPara.FLOAT_PRECISION),
+            "n_atoms": torch.tensor([len(atoms)], dtype=torch.long),
+            "offset": torch.tensor(offset, dtype=EnvPara.FLOAT_PRECISION),
+            "scaling": torch.eye(dim, dtype=EnvPara.FLOAT_PRECISION).view(1, dim, dim)
+        }
+
         padding_shape = {
             'site_energy' : (len(atoms)),
             'energy'      : (1),
             'forces'      : (len(atoms), dim),
             'virial'      : (1, dim, dim),
             'dipole'      : (1, dim),
+            'polarizability': (1, dim, dim)
         }
-        for key in ['site_energy', 'energy', 'forces', 'virial', 'dipole']:
+        for key in properties:
             if key in atoms.info:
-                graph[key + '_t'] = torch.tensor(atoms.info[key], dtype=EnvPara.FLOAT_PRECISION, device=device).reshape(padding_shape[key])
-                graph['has_' + key] = True
+                data[key + '_t'] = torch.tensor(atoms.info[key], dtype=EnvPara.FLOAT_PRECISION).reshape(padding_shape[key])
+                data[key + '_weight'] = torch.ones(padding_shape[key], dtype=EnvPara.FLOAT_PRECISION)
             else:
-                graph[key + '_t'] = torch.zeros(padding_shape[key], dtype=EnvPara.FLOAT_PRECISION, device=device)
-                graph['has_' + key] = False
-        return graph
+                data[key + '_t'] = torch.zeros(padding_shape[key], dtype=EnvPara.FLOAT_PRECISION)
+                data[key + '_weight'] = torch.zeros(padding_shape[key], dtype=EnvPara.FLOAT_PRECISION)
+        return data
 
-    @property
-    def processed_dir(self) -> str:
-        return os.path.join(self.root, f"processed_{self.cutoff:.2f}".replace(".", "_"))
+    def __init__(self,
+                 indices: Optional[List[int]]=None,
+                 cutoff : float=4.0,
+                 ) -> None:
+        self.indices = indices
+        self.cutoff = cutoff
 
-    @property
-    def per_energy_mean(self):
-        per_energy = self.data["energy_t"] / self.data["n_atoms"]
-        return torch.mean(per_energy)
+    def __len__(self):
+        if self.indices:
+            return len(self.indices)
 
-    @property
-    def per_energy_std(self):
-        per_energy = self.data["energy_t"] / self.data["n_atoms"]
-        return torch.std(per_energy)
+    @abc.abstractmethod
+    def __getitem__(self, idx: int):
+        pass
 
-    @property
-    def forces_std(self):
-        return torch.std(self.data["forces_t"])
+    def subset(self, indices: List[int]):
+        ds = copy.copy(self)
+        if ds.indices:
+            ds.indices = [ds.indices[i] for i in indices]
+        else:
+            ds.indices = indices
+        return ds
 
-    @property
-    def n_neighbor_mean(self):
-        n_neighbor = self.data['edge_index'].shape[1] / len(self.data['x'])
-        return n_neighbor
+def atoms_collate_fn(batch):
 
-    @property
-    def all_elements(self):
-        return torch.unique(self.data['atomic_number'])
+    elem = batch[0]
+    coll_batch = {}
 
-    def load(self, name: str, device: str="cpu") -> None:
-        self.data, self.slices = torch.load(name, map_location=device)
+    for key in elem:
+        if key not in ["idx_i", "idx_j"]:
+            coll_batch[key] = torch.cat([d[key] for d in batch], dim=0)
 
-    def load_split(self, train_split: str, test_split: str):
-        train_idx = np.loadtxt(train_split, dtype=int)
-        test_idx  = np.loadtxt(test_split, dtype=int)
-        return self.copy(train_idx), self.copy(test_idx)
+    # idx_i and idx_j should to be converted like
+    # [0, 0, 1, 1] + [0, 0, 1, 2] -> [0, 0, 1, 1, 2, 2, 3, 4]
+    for key in ["idx_i", "idx_j"]:
+        coll_batch[key] = torch.cat(
+            [batch[i][key] + torch.sum(coll_batch["n_atoms"][:i]) for i in range(len(batch))], dim=0
+        )
 
-    def random_split(self, train_num: int, test_num: int):
-        assert train_num + test_num <= len(self)
-        idx = np.random.choice(len(self), train_num + test_num, replace=False)
-        train_idx = idx[:train_num]
-        test_idx  = idx[train_num:]
-        return self.copy(train_idx), self.copy(test_idx)
+    coll_batch["batch"] = torch.repeat_interleave(
+        torch.arange(len(batch)),
+        repeats=coll_batch["n_atoms"].to(torch.long),
+        dim=0
+    )
+
+    return coll_batch
