@@ -11,9 +11,13 @@ endif()
 
 project(lammps CXX)
 set(SOVERSION 0)
-
 get_filename_component(LAMMPS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/.. ABSOLUTE)
 get_filename_component(LAMMPS_LIB_BINARY_DIR ${CMAKE_BINARY_DIR}/lib ABSOLUTE)
+
+# undefined reference to symbol / ..libdl.so.2: error adding symbols: DSO missing from command line
+# https://stackoverflow.com/questions/46060038/undefined-reference-to-symbol-libdl-so-2-error-adding-symbols-dso-missing
+set(CMAKE_CXX_LINK_EXECUTABLE "${CMAKE_CXX_LINK_EXECUTABLE} -ldl")
+##
 
 set(LAMMPS_SOURCE_DIR     ${LAMMPS_DIR}/src)
 set(LAMMPS_LIB_SOURCE_DIR ${LAMMPS_DIR}/lib)
