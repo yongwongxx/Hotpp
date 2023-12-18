@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.optim.swa_utils import AveragedModel
 from ase.data import atomic_numbers
 from ..utils import setup_seed
-from ..model import MiaoNet, LitAtomicModule
+from ..model import MiaoNet, LitAtomicModule, MultiAtomicModule, TwoBody
 from ..layer.cutoff import *
 from ..layer.embedding import AtomicEmbedding
 from ..layer.radial import *
@@ -151,7 +151,14 @@ def get_model(p_dict, elements, mean, std, n_neighbor):
                     mean=mean,
                     std=std,
                     norm_factor=n_neighbor,
-                    mode=model_dict['mode']).to(p_dict['device'])
+                    mode=model_dict['mode'],
+                    bilinear=model_dict['bilinear']).to(p_dict['device'])
+    assert isinstance(model_dict['Repulsion'], int), "Repulsion should be int!"
+    if model_dict['Repulsion'] > 0:
+        model = MultiAtomicModule({'main': model, 
+                                   'repulsion': TwoBody(embedding_layer=emb,
+                                                        cutoff_fn=cut_fn,
+                                                        k_max=model_dict['Repulsion'])})
     return model
 
 
@@ -175,6 +182,7 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
         },
         "Model": {
             "mode": "normal",
+            "bilinear": False,
             "activateFn": "silu",
             "nEmbedding": 64,
             "nLayer": 5,
@@ -191,7 +199,8 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
                 "nBasis": 8,
                 "nHidden": [64, 64, 64],
                 "activateFn": "silu",
-            }
+            },
+            "Repulsion": 0,
         },
         "Train": {
             "maxEpoch": 10000,

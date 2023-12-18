@@ -9,15 +9,20 @@ def main(*args, model="model.pt", device="cpu", output="infer.pt", symbols=None,
         all_elements = [atomic_numbers[s] for s in symbols]
     else:
         all_elements = model.all_elements.cpu().numpy()
-    new_weight = torch.zeros(len(all_elements), model.embedding_layer.n_channel)
-    for i, n in enumerate(all_elements):
-        new_weight[i] = model.embedding_layer.z_weights.weight.data[n]
-    model.embedding_layer.z_weights.weight.data = new_weight
-    infer = torch.jit.script(model)
-    for params in infer.parameters():
+    for params in model.parameters():
         params.requires_grad=False
-    infer.save(output)
-    
+    ase_infer = torch.jit.script(model)
+    ase_infer.save(f'ase-{output}')
+    # lammps symbol index is different
+    for name, value in model.named_parameters():
+        if "embedding_layer" in name:
+            new_weight = torch.zeros(len(all_elements), value.shape[1])
+            for i, n in enumerate(all_elements):
+                new_weight[i] = value[n].data
+            value[n].data = new_weight
+    lammps_infer = torch.jit.script(model)
+    lammps_infer.save(f'lammps-{output}')
+
 
 if __name__ == "__main__":
     main()

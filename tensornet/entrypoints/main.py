@@ -12,7 +12,7 @@ def parse_args():
         "-v",
         "--version",
         help="print version",
-        action='version', 
+        action='version',
         version=__version__
     )
     parser_log = argparse.ArgumentParser(
@@ -43,7 +43,7 @@ def parse_args():
     parser_train.add_argument(
         "-i",
         "--input-file",
-        type=str, 
+        type=str,
         default="input.yaml",
         help="the input parameter file in yaml format"
     )
@@ -152,8 +152,9 @@ def parse_args():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser_freeze.add_argument(
-        "-m",
-        "--model",
+        "model",
+        nargs="?",
+        type=str,
         default="model.pt",
         help="model",
     )
