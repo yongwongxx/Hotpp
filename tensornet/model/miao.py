@@ -5,6 +5,7 @@ from .base import AtomicModule
 from ..layer import SOnEquivalentLayer, EmbeddingLayer, RadialLayer, ReadoutLayer, CutoffLayer
 from ..utils import expand_para, find_distances
 
+# TODO: std and mean should be move to data prepare?
 
 class MiaoNet(AtomicModule):
     """
@@ -24,8 +25,11 @@ class MiaoNet(AtomicModule):
                  std             : float=1.,
                  norm_factor     : float=1.,
                  mode            : str='normal',
+                 bilinear        : bool=False,
                  ):
-        super().__init__(mean=mean, std=std)
+        super().__init__()
+        self.register_buffer("mean", torch.tensor(mean).float())
+        self.register_buffer("std", torch.tensor(std).float())
         self.register_buffer("norm_factor", torch.tensor(norm_factor).float())
         self.embedding_layer = embedding_layer
         max_r_way = expand_para(max_r_way, n_layers)
@@ -45,14 +49,21 @@ class MiaoNet(AtomicModule):
                                mode=mode) for i in range(n_layers)])
         self.readout_layer = ReadoutLayer(n_dim=hidden_nodes[-1],
                                           target_way=target_way,
-                                          activate_fn=activate_fn)
+                                          activate_fn=activate_fn,
+                                          bilinear=bilinear,
+                                          e_dim=embedding_layer.n_channel)
 
     def calculate(self,
                   batch_data : Dict[str, torch.Tensor],
                   ) -> Dict[str, torch.Tensor]:
         find_distances(batch_data)
-        output_tensors = {0: self.embedding_layer(batch_data=batch_data)}
+        emb = self.embedding_layer(batch_data=batch_data)
+        output_tensors = {0: emb}
         for son_equivalent_layer in self.son_equivalent_layers:
             output_tensors = son_equivalent_layer(output_tensors, batch_data)
-        output_tensors = self.readout_layer(output_tensors)
+        output_tensors = self.readout_layer(output_tensors, emb)
+        if 'site_energy' in output_tensors:
+            output_tensors['site_energy'] = output_tensors['site_energy'] * self.std + self.mean
+        if 'direct_forces' in output_tensors:
+            output_tensors['direct_forces'] = output_tensors['direct_forces'] * self.std
         return output_tensors
