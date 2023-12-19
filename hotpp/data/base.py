@@ -2,7 +2,7 @@ import torch
 import copy
 import abc
 import numpy as np
-from tensornet.utils import EnvPara
+from ..utils import EnvPara
 from torch.utils.data import Dataset
 from ase.neighborlist import neighbor_list
 from typing import Optional, List

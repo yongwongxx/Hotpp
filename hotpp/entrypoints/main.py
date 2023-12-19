@@ -195,7 +195,7 @@ def main():
         log.info(__picture__)
     if args.command:
         try:
-            f = getattr(importlib.import_module('tensornet.entrypoints.{}'.format(args.command)), "main")
+            f = getattr(importlib.import_module('hotpp.entrypoints.{}'.format(args.command)), "main")
         except:
             raise RuntimeError(f"unknown command {args.command}")
         f(**dict_args)

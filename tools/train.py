@@ -7,14 +7,14 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 import torch.nn.functional as F
 from torch.optim.swa_utils import AveragedModel
 from ase.data import atomic_numbers
-from tensornet.utils import setup_seed
-from tensornet.model import MiaoNet, LitAtomicModule
-from tensornet.layer.cutoff import *
-from tensornet.layer.embedding import AtomicEmbedding
-from tensornet.layer.radial import *
-from tensornet.data import LitAtomsDataset
+from hotpp.utils import setup_seed
+from hotpp.model import MiaoNet, LitAtomicModule
+from hotpp.layer.cutoff import *
+from hotpp.layer.embedding import AtomicEmbedding
+from hotpp.layer.radial import *
+from hotpp.data import LitAtomsDataset
 
-from tensornet.logger import set_logger
+from hotpp.logger import set_logger
 set_logger(log_path='log.txt', level='DEBUG')
 log = logging.getLogger(__name__)
 

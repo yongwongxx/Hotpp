@@ -1,5 +1,5 @@
 from setuptools import setup, find_packages
-from tensornet import __version__
+from hotpp import __version__
 
 
 with open('README.md') as f:
@@ -20,10 +20,11 @@ setup(
         "pyyaml",
         "torch",
         "lightning",
+        "tensorboard",
     ],
     license="MIT",
     description="MiaoNet: Moment tensor InterAggregate Operation Net",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    entry_points={"console_scripts": ["tensornet = tensornet.entrypoints.main:main"]},
+    entry_points={"console_scripts": ["hotpp = hotpp.entrypoints.main:main"]},
 )

@@ -2,7 +2,7 @@ from ase.io import read
 import numpy as np
 import torch
 from torch_geometric.loader import DataLoader
-from tensornet.data import ASEData, ASEDBData, atoms_collate_fn
+from hotpp.data import ASEData, ASEDBData, atoms_collate_fn
 
 
 def eval(model, data_loader, properties, device='cpu'):

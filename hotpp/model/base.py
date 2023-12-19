@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from typing import List, Dict, Optional
-from tensornet.utils import _scatter_add, find_distances, add_scaling
+from ..utils import _scatter_add, find_distances, add_scaling
 
 
 class AtomicModule(nn.Module):
