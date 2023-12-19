@@ -1,10 +1,10 @@
 from scipy.io import loadmat
 from scipy.stats import special_ortho_group
 from ase import Atoms
-from tensornet.layer import *
-from tensornet.model import MiaoNet
-from tensornet.utils import setup_seed, multi_outer_product, EnvPara
-from tensornet.data import AtomsData
+from hotpp.layer import *
+from hotpp.model import MiaoNet
+from hotpp.utils import setup_seed, multi_outer_product, EnvPara
+from hotpp.data import AtomsData
 from torch_geometric.data import Batch
 import unittest
 import numpy as np

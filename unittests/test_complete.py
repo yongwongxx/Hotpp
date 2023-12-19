@@ -1,7 +1,7 @@
 from ase import Atoms
-from tensornet.layer import BehlerG1, SmoothCosineCutoff, SOnEquivalentLayer, ChebyshevPoly
-from tensornet.utils import setup_seed
-from tensornet.data import AtomsData
+from hotpp.layer import BehlerG1, SmoothCosineCutoff, SOnEquivalentLayer, ChebyshevPoly
+from hotpp.utils import setup_seed
+from hotpp.data import AtomsData
 from torch_geometric.data import Batch
 import unittest
 import numpy as np

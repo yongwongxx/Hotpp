@@ -1,4 +1,4 @@
-from tensornet.interface.ase import MiaoCalculator
+from hotpp.interface.ase import MiaoCalculator
 from ase.io import read
 import numpy as np
 import matplotlib.pyplot as plt

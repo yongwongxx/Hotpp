@@ -2,7 +2,7 @@ from ase.io import read
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from tensornet.data import ASEData, ASEDBData, atoms_collate_fn
+from ..data import ASEData, ASEDBData, atoms_collate_fn
 from tqdm import tqdm
 
 

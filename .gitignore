@@ -2,7 +2,9 @@
 test.ipynb
 test.py
 test/
+theory/
 tests/
+unittests/   # hehe, lan de nong le
 .vscode/
 .idea
 dataset/
