@@ -23,8 +23,17 @@ class AtomsDataset(Dataset, abc.ABC):
             "coordinate": torch.tensor(atoms.positions, dtype=EnvPara.FLOAT_PRECISION),
             "n_atoms": torch.tensor([len(atoms)], dtype=torch.long),
             "offset": torch.tensor(offset, dtype=EnvPara.FLOAT_PRECISION),
-            "scaling": torch.eye(dim, dtype=EnvPara.FLOAT_PRECISION).view(1, dim, dim)
         }
+
+        if 'virial' in properties:
+            data["scaling"] = torch.eye(dim, dtype=EnvPara.FLOAT_PRECISION).view(1, dim, dim)
+            if 'stress' in atoms.info and 'virial' not in atoms.info:
+                stress = np.array(atoms.info['stress'])
+                if stress.shape == (6,):
+                    stress = np.array([[stress[0], stress[5], stress[4]],
+                                       [stress[5], stress[1], stress[3]],
+                                       [stress[4], stress[3], stress[2]]])
+                atoms.info['virial'] = -atoms.get_volume() * stress
 
         padding_shape = {
             'site_energy' : (len(atoms)),
@@ -50,9 +59,9 @@ class AtomsDataset(Dataset, abc.ABC):
         self.indices = indices
         self.cutoff = cutoff
 
+    @abc.abstractmethod
     def __len__(self):
-        if self.indices:
-            return len(self.indices)
+        pass
 
     @abc.abstractmethod
     def __getitem__(self, idx: int):

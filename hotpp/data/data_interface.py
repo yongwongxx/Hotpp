@@ -29,11 +29,10 @@ class LitAtomsDataset(pl.LightningDataModule):
 
     def get_dataset(self):
         data_dict = self.p_dict['Data']
-        # if data_dict['type'] == 'rmd17':
-        #     dataset = RevisedMD17(data_dict['path'], 
-        #                         data_dict['name'], 
-        #                         cutoff=p_dict['cutoff'], 
-        #                         device=p_dict['device'])
+        if data_dict['type'] == 'rmd17':
+            dataset = RevisedMD17(data_dict['path'], 
+                                  data_dict['name'], 
+                                  cutoff=self.p_dict['cutoff'])
         if data_dict['type'] == 'ase':
             if 'name' in data_dict:
                 frames = read(os.path.join(data_dict['path'], data_dict['name']), index=':')

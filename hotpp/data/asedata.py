@@ -44,8 +44,7 @@ class ASEDBData(AtomsDataset):
                  cutoff     : float=4.0,
                  ) -> None:
         super().__init__(indices=indices, cutoff=cutoff)
-        self.datapath = datapath
-        self.conn = connect(self.datapath, use_lock_file=False)
+        self.conn = connect(datapath, use_lock_file=False)
         self.properties = properties
 
     def __len__(self):
