@@ -8,6 +8,10 @@
 *.h text eol=lf
 *.py text eol=lf
 *.xyz text eol=lf
+*.yaml text eol=lf
+*README* text eol=lf
+INCAR text eol=lf
+*.vasp text eol=lf
 
 # Declare files that will always have CRLF line endings on checkout.
 *.sln text eol=crlf
@@ -15,3 +19,4 @@
 # Denote all files that are truly binary and should not be modified.
 *.png binary
 *.jpg binary
+
