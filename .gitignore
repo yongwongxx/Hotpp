@@ -76,7 +76,13 @@ instance/
 .scrapy
 
 # Sphinx documentation
-docs/_build/
+docs/build/
+docs/build.sh
+docs/clean.sh
+docs/source/_static/       
+docs/source/_templates/
+docs/html/
+# docs/source/auto_examples/
 
 # PyBuilder
 target/
