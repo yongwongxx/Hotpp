@@ -16,4 +16,5 @@ equivalence maintenance.
    :caption: Contents:
 
    install
+   examples
    hotpp

@@ -112,7 +112,7 @@ class LitAtomicModule(pl.LightningModule):
                     "weight_decay": 0.0,
                 },
             ],
-            lr=self.p_dict["Train"]["learningRate"],
+            lr=opt_dict["learningRate"],
             amsgrad=opt_dict["amsGrad"],
         )
 
@@ -136,7 +136,7 @@ class LitAtomicModule(pl.LightningModule):
                     factor=lr_dict['lrFactor'],
                     patience=lr_dict['patience']
                     )
-            if self.p_dict["Train"]["evalEpochInterval"] == 1:
+            if isinstance(self.p_dict["Train"]["evalStepInterval"], int):
                 lr_scheduler_config = {
                         "scheduler": scheduler,
                         "interval": "step",
@@ -173,7 +173,7 @@ class LitAtomicModule(pl.LightningModule):
         if self.trainer.global_step < self.p_dict["Train"]["warmupSteps"]:
             lr_scale = min(1.0, float(self.trainer.global_step + 1) / self.p_dict["Train"]["warmupSteps"])
             for pg in optimizer.param_groups:
-                pg["lr"] = lr_scale * self.p_dict["Train"]["learningRate"]
+                pg["lr"] = lr_scale * self.p_dict["Train"]["Optimizer"]["learningRate"]
 
     # def lr_scheduler_step(self, scheduler, metric):
     #     scheduler.step(epoch=self.current_epoch)  # timm's scheduler need the epoch value

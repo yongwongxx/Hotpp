@@ -21,14 +21,14 @@ def plot_prop(prop):
     ax = plt.gca()
     ax.set_aspect(1)
     # titile
-    plt.title("Miao {0} vs DFT {0}".format(prop), fontsize=16)
+    plt.title("HotPP {0} vs DFT {0}".format(prop), fontsize=16)
     # axis
     ymajorFormatter = ticker.FormatStrFormatter('%.1f') 
     xmajorFormatter = ticker.FormatStrFormatter('%.1f') 
     ax.xaxis.set_major_formatter(xmajorFormatter)
     ax.yaxis.set_major_formatter(ymajorFormatter)
     ax.set_xlabel('DFT  {}'.format(prop), fontsize=14)
-    ax.set_ylabel('Miao {}'.format(prop), fontsize=14)
+    ax.set_ylabel('HotPP {}'.format(prop), fontsize=14)
     ax.spines['bottom'].set_linewidth(3)
     ax.spines['left'].set_linewidth(3)
     ax.spines['right'].set_linewidth(3)

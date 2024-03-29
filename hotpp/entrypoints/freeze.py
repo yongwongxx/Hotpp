@@ -19,7 +19,7 @@ def main(*args, model="model.pt", device="cpu", output="infer.pt", symbols=None,
             new_weight = torch.zeros(len(all_elements), value.shape[1])
             for i, n in enumerate(all_elements):
                 new_weight[i] = value[n].data
-            value[n].data = new_weight
+            value.data = new_weight
     lammps_infer = torch.jit.script(model)
     lammps_infer.save(f'lammps-{output}')
 

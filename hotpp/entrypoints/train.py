@@ -1,4 +1,4 @@
-import logging, time, yaml, os
+import logging, time, yaml, os, shutil
 import numpy as np
 import torch
 from torch import nn
@@ -14,9 +14,16 @@ from ..layer.embedding import AtomicEmbedding
 from ..layer.radial import *
 from ..data import LitAtomsDataset
 
+# 别管Warning不Warning，只要能跑不就行
+import warnings
+warnings.filterwarnings(action='ignore', message='Checkpoint directory')
+warnings.filterwarnings(action='ignore', message='Mean of empty slice')
+warnings.filterwarnings(action='ignore', message='The dirpath has changed from')
+warnings.filterwarnings(action='ignore', message='invalid value encountered in double_scalars')
 
-torch.set_float32_matmul_precision("high")
+# torch.set_float32_matmul_precision("high")
 log = logging.getLogger(__name__)
+
 
 
 class SaveModelCheckpoint(ModelCheckpoint):
@@ -25,9 +32,12 @@ class SaveModelCheckpoint(ModelCheckpoint):
     """
     def _save_checkpoint(self, trainer: "pl.Trainer", filepath: str) -> None:
         super()._save_checkpoint(trainer, filepath)
-        modelpath = filepath[:-4] + "pt"
+        dirname = os.path.dirname(filepath)
+        modelname = os.path.basename(filepath)[:-5]
         if trainer.is_global_zero:
-            torch.save(trainer.lightning_module.model, modelpath)
+            torch.save(trainer.lightning_module.model, os.path.join(dirname, f"{modelname}.pt"))
+            shutil.copy(os.path.join(dirname, f"{modelname}.ckpt"), os.path.join(dirname, "best.ckpt"))
+            shutil.copy(os.path.join(dirname, f"{modelname}.pt"), os.path.join(dirname, "best.pt"))
 
     def _remove_checkpoint(self, trainer: "pl.Trainer", filepath: str) -> None:
         super()._remove_checkpoint(trainer, filepath)
@@ -36,6 +46,47 @@ class SaveModelCheckpoint(ModelCheckpoint):
             if os.path.exists(modelpath):
                 os.remove(modelpath)
 
+
+class LogAllLoss(pl.Callback):
+
+    def __init__(self, properties) -> None:
+        super().__init__()
+        self.properties = properties
+        self.train_loss = {p: [] for p in properties}
+        self.train_loss['total'] = []
+        self.title = False
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        if trainer.global_rank == 0:
+            loss_metrics = trainer.callback_metrics
+            self.train_loss['total'].append(loss_metrics['train_loss'].detach().cpu().numpy())
+            for prop in self.properties:
+                prop = "forces" if prop == "direct_forces" else prop
+                self.train_loss[prop].append(loss_metrics[f'train_{prop}'].detach().cpu().numpy())
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        if trainer.global_rank == 0:
+            if not self.title:
+                content = f"{'epoch':^10}|{'lr':^10}|{'total':^21}"
+                for prop in self.properties:
+                    content += f"|{prop:^21}"
+                log.info(content)
+                self.title = True
+            epoch = trainer.current_epoch
+            if epoch > 0:
+                lr = trainer.optimizers[0].param_groups[0]["lr"]
+                loss_metrics = trainer.callback_metrics
+                train_loss = np.mean(self.train_loss['total'])
+                val_loss = loss_metrics['val_loss'].detach().cpu().numpy()
+                content = f"{epoch:^10}|{lr:^10.2e}|{train_loss:^10.4f}/{val_loss:^10.4f}"
+                for prop in self.properties:
+                    prop = "forces" if prop == "direct_forces" else prop
+                    train_prop_loss = np.mean(self.train_loss[prop])
+                    val_prop_loss = loss_metrics[f'val_{prop}'].detach().cpu().numpy()
+                    content += f"|{train_prop_loss:^10.4f}/{val_prop_loss:^10.4f}"
+                log.info(content)
+                for prop in self.train_loss:
+                    self.train_loss[prop] = []
 
 def update_dict(d1, d2):
     for key in d2:
@@ -205,7 +256,6 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
         "Train": {
             "maxEpoch": 10000,
             "maxStep": 1000000,
-            "learningRate": 0.001,
             "allowMissing": False,
             "targetProp": ["energy", "forces"],
             "weight": [0.1, 1.0],
@@ -220,6 +270,7 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
                 "type": "Adam",
                 "amsGrad": True,
                 "weightDecay": 0.,
+                "learningRate": 0.01,
                 },
             "LrScheduler": {
                 "type": "constant",
@@ -256,6 +307,11 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
     else:
         lit_model = LitAtomicModule(model=model, p_dict=p_dict)
 
+    if load_checkpoint is not None:
+        ckpt = torch.load(load_checkpoint)
+        p_dict["Train"]["maxEpoch"] += ckpt['epoch']
+        p_dict["Train"]["maxStep"] += ckpt['global_step']
+
     logger = pl.loggers.TensorBoardLogger(save_dir=p_dict["outputDir"])
     callbacks = [
         SaveModelCheckpoint(
@@ -264,8 +320,10 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
             save_top_k=5,
             monitor="val_loss"
         ),
-        LearningRateMonitor()
+        LearningRateMonitor(),
+        LogAllLoss(p_dict["Train"]['targetProp']),
     ]
+
     trainer = pl.Trainer(
         logger=logger,
         callbacks=callbacks,
@@ -278,6 +336,7 @@ def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, 
         check_val_every_n_epoch=p_dict["Train"]["evalEpochInterval"],
         gradient_clip_val=p_dict["Train"]["gradClip"],
         )
+    
     if load_checkpoint is not None:
         log.info(f"Load checkpoints from {load_checkpoint}")
         trainer.fit(lit_model, datamodule=dataset, ckpt_path=load_checkpoint)

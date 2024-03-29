@@ -1,0 +1,71 @@
+Data:
+  elements: null
+  mean: null
+  nNeighbor: null
+  numWorkers: 8
+  path: .
+  pinMemory: true
+  std: force
+  testBatch: 16
+  testSet: data/test.traj
+  trainBatch: 16
+  trainSet: data/train.traj
+  type: ase
+Model:
+  CutoffLayer:
+    p: 5
+    type: poly
+  RadialLayer:
+    activateFn: silu
+    nBasis: 8
+    nHidden:
+    - 64
+    - 64
+    - 64
+    type: besselMLP
+  Repulsion: 0
+  activateFn: silu
+  bilinear: false
+  maxOutWay: 2
+  maxRWay: 2
+  mode: simple
+  nEmbedding: 64
+  nHidden: 64
+  nLayer: 5
+  targetWay:
+    0: site_energy
+Train:
+  LrScheduler:
+    lrFactor: 0.9
+    patience: 10
+    type: reduceOnPlateau
+  Optimizer:
+    amsGrad: true
+    learningRate: 0.001
+    type: AdamW
+    weightDecay: 0.0
+  allowMissing: true
+  emaDecay: 0.0
+  evalEpochInterval: 1
+  evalStepInterval: 1.0
+  evalTest: true
+  forceScale: 0.0
+  gradClip: null
+  logInterval: 1
+  maxEpoch: 10
+  maxStep: 10000000
+  saveStart: 1000
+  targetProp:
+  - energy
+  - forces
+  - virial
+  warmupSteps: 500
+  weight:
+  - 0.5
+  - 1.0
+  - 0.2
+cutoff: 3.0
+device: cuda
+outputDir: /home/gegejun/work/tpn/examples/carbon/outDir
+seed: 52614
+workDir: /home/gegejun/work/tpn/examples/carbon
