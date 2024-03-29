@@ -24,16 +24,33 @@ class AtomsDataset(Dataset, abc.ABC):
             "n_atoms": torch.tensor([len(atoms)], dtype=torch.long),
             "offset": torch.tensor(offset, dtype=EnvPara.FLOAT_PRECISION),
         }
-
+        if 'energy' in properties:
+            if 'energy' not in atoms.info:
+                try:
+                    atoms.info['energy'] = atoms.get_potential_energy()
+                except:
+                    pass
+        if 'forces' in properties:
+            if 'forces' not in atoms.info:
+                try:
+                    atoms.info['forces'] = atoms.get_forces()
+                except:
+                    pass
         if 'virial' in properties:
             data["scaling"] = torch.eye(dim, dtype=EnvPara.FLOAT_PRECISION).view(1, dim, dim)
-            if 'stress' in atoms.info and 'virial' not in atoms.info:
-                stress = np.array(atoms.info['stress'])
-                if stress.shape == (6,):
-                    stress = np.array([[stress[0], stress[5], stress[4]],
-                                       [stress[5], stress[1], stress[3]],
-                                       [stress[4], stress[3], stress[2]]])
-                atoms.info['virial'] = -atoms.get_volume() * stress
+            if 'virial' not in atoms.info:
+                if 'stress' not in atoms.info:
+                    try:
+                        atoms.info['stress'] = atoms.get_stress()
+                    except:
+                        pass
+                if 'stress' in atoms.info:
+                    stress = np.array(atoms.info['stress'])
+                    if stress.shape == (6,):
+                        stress = np.array([[stress[0], stress[5], stress[4]],
+                                        [stress[5], stress[1], stress[3]],
+                                        [stress[4], stress[3], stress[2]]])
+                    atoms.info['virial'] = -atoms.get_volume() * stress
 
         padding_shape = {
             'site_energy' : (len(atoms)),
@@ -46,7 +63,10 @@ class AtomsDataset(Dataset, abc.ABC):
         for key in properties:
             if key in atoms.info:
                 data[key + '_t'] = torch.tensor(atoms.info[key], dtype=EnvPara.FLOAT_PRECISION).reshape(padding_shape[key])
-                data[key + '_weight'] = torch.ones(padding_shape[key], dtype=EnvPara.FLOAT_PRECISION)
+                if key + 'weight' in atoms.info:
+                    data[key + '_weight'] = torch.tensor(atoms.info[key + '_weight'], dtype=EnvPara.FLOAT_PRECISION).reshape(padding_shape[key])
+                else:
+                    data[key + '_weight'] = torch.ones(padding_shape[key], dtype=EnvPara.FLOAT_PRECISION)
             else:
                 data[key + '_t'] = torch.zeros(padding_shape[key], dtype=EnvPara.FLOAT_PRECISION)
                 data[key + '_weight'] = torch.zeros(padding_shape[key], dtype=EnvPara.FLOAT_PRECISION)

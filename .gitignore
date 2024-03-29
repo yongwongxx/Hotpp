@@ -13,6 +13,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Examples
+
+
 # C extensions
 *.so
 
@@ -79,8 +82,11 @@ instance/
 docs/build/
 docs/build.sh
 docs/clean.sh
-docs/source/_static/       
-docs/source/_templates/
+docs/source/*      
+!docs/source/conf.py
+!docs/source/index.rst
+!docs/source/install.rst
+!docs/source/examples.rst
 docs/html/
 # docs/source/auto_examples/
 

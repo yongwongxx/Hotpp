@@ -1,0 +1,55 @@
+cutoff: 4.0
+seed: 0
+device: 'cuda'
+Data:
+  type: ase
+  mean: 0.0
+  std: 1.0
+  nNeighbor: 25.78
+  elements: [1, 8]
+  path: . 
+  trainBatch: 16
+  testBatch: 16
+  trainSet: train.xyz
+  testSet: test.xyz
+  numWorkers: 8
+  pinMemory: True
+Model:
+  nLayer: 4
+  mode: simple
+  activateFn: silu
+  nEmbedding: 64
+  nHidden: 64
+  maxRWay: 2
+  maxOutWay: 2
+  CutoffLayer:
+    type: poly
+    p: 5
+  RadialLayer:
+    #type: bessel
+    type: besselMLP
+    nBasis: 8
+    nHidden: [64, 64, 64]
+    activateFn: silu
+Train:
+  learningRate: !!float 1e-3
+  warmupSteps: 100
+  allowMissing: False
+  targetProp: ["polarizability"] 
+  weight: [1.0]
+  amsGrad: True                          # use amsGrad  
+  maxEpoch: 50000
+  maxStep: 10000000
+  evalEpochInterval: 10
+  evalStepInterval: 1.0
+  logInterval: 20
+  emaDecay: 0.0                          # use ema
+  Optimizer: 
+    type: AdamW
+    amsGrad: True
+    weightDecay: !!float 0.
+    learningRate: !!float 1e-3
+  LrScheduler:
+    type: reduceOnPlateau
+    lrFactor: 0.8
+    patience: 10

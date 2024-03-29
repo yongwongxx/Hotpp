@@ -12,9 +12,10 @@
 #
 import os
 import sys
-sys.path.insert(0, os.path.abspath('../../hotpp'))
+# sys.path.insert(0, os.path.abspath('../../hotpp'))
 
-
+import shutil
+shutil.copytree('../../examples', 'examples')
 # -- Project information -----------------------------------------------------
 
 project = 'HotPP'
@@ -40,6 +41,8 @@ extensions = [
     'sphinx.ext.mathjax',
     'recommonmark',
     'sphinx_markdown_tables',
+    'nbsphinx',
+    # 'nbsphinx-link',
     # 'sphinx_gallery.gen_gallery',
     # 'sphinx-mathjax-offline',
 ]
@@ -70,6 +73,7 @@ source_suffix = {
     '.md': 'markdown',
 }
 
+nbsphinx_allow_errors = True
 #sphinx_gallery_conf = {
 #     'examples_dirs': '../../examples',   # path to your example scripts
 #     'gallery_dirs': 'auto_examples',  # path to where to save gallery generated output

@@ -1,0 +1,44 @@
+cutoff: 4.0
+seed: 0
+device: 'cuda'
+Data:
+  type: ase
+  path: . 
+  trainBatch: 16
+  testBatch: 16
+  trainSet: train.xyz
+  testSet: test.xyz
+Model:
+  nLayer: 4
+  mode: simple
+  activateFn: silu
+  nEmbedding: 64
+  nHidden: 64
+  maxRWay: 2
+  maxOutWay: 2
+  CutoffLayer:
+    type: poly
+    p: 5
+  RadialLayer:
+    #type: bessel
+    type: besselMLP
+    nBasis: 8
+    nHidden: [64, 64, 64]
+    activateFn: silu
+Train:
+  allowMissing: False
+  targetProp: ["dipole"] 
+  weight: [1.0]
+  amsGrad: True                          # use amsGrad  
+  epoch: 50000
+  logInterval: 100
+  emaDecay: 0.0                          # use ema
+  Optimizer: 
+    type: AdamW
+    amsGrad: True
+    weightDecay: !!float 1e-6
+    learningRate: !!float 1e-3
+  LrScheduler:
+    type: reduceOnPlateau
+    lrFactor: 0.8
+    patience: 500    

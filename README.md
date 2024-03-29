@@ -88,7 +88,7 @@ source <your-path-to>/auto_complete.sh
 ## LAMMPS
 
 # Contributors
-HotPP is developed by Prof. Jian Sun's group at the School of Physics at Nanjing University. Please contact us with email (jiansun@nju.edu.cn) if you have any questions concerning HotPP. 
+HotPP is developed by Prof. Jian Sun's group at the School of Physics at Nanjing University.
 
 The contributors are:
 - Jian Sun
