@@ -1,4 +1,4 @@
-import argparse, importlib, logging
+import argparse, importlib, logging, os, subprocess
 from .. import __version__, __picture__
 from ..logger import set_logger
 
@@ -125,6 +125,11 @@ def parse_args():
         action="store_true",
         help="pin memory"
     )
+    parser_eval.add_argument(
+        "--spin",
+        action="store_true",
+        help="has spin"
+    )
     # clean
     parser_clean = subparsers.add_parser(
         "clean",
@@ -193,6 +198,23 @@ def main():
         set_logger(name='hotpp', level=dict_args['log_level'], log_path=dict_args['log_path'])
         log = logging.getLogger(__name__)
         log.info(__picture__)
+        # git info
+        pwd = os.getcwd()
+        hotpp_path = os.path.dirname(os.path.dirname(__file__))
+        os.chdir(hotpp_path)
+        try:
+            branch = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD']).strip().decode('utf-8')
+            commit_id = subprocess.check_output(['git', 'rev-parse', 'HEAD']).strip().decode('utf-8')
+            commit_message = subprocess.check_output(['git', 'log', '-1', '--pretty=%B']).strip().decode('utf-8')
+            diff = subprocess.check_output(['git', 'diff']).strip().decode('utf-8')
+            log.debug(f"\nBranch: {branch}\n"
+                      f"Commit ID: {commit_id}\n"
+                      f"Commit Message: {commit_message}\n"
+                      f"Diff: \n{diff}\n")
+        except:
+            log.debug("Error: Not a git repository or some git command failed.")
+        os.chdir(pwd)
+
     if args.command:
         try:
             f = getattr(importlib.import_module('hotpp.entrypoints.{}'.format(args.command)), "main")

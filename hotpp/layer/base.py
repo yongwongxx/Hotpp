@@ -40,11 +40,11 @@ class CutoffLayer(nn.Module):
 
 class RadialLayer(nn.Module):
     def __init__(self, 
-                 n_features : int,
+                 n_channel : int,
                  cutoff_fn  : Optional[CutoffLayer]=None) -> None:
         super().__init__()
-        self.n_features = n_features
-        self.cutoff_fn = cutoff_fn or nn.Identity()
+        self.n_channel = n_channel
+        self.cutoff_fn = cutoff_fn
 
     def radial(self,
                d: torch.Tensor,  # [n, 1]
@@ -55,7 +55,10 @@ class RadialLayer(nn.Module):
                 distances: torch.Tensor,
                 ) -> torch.Tensor:
         d = distances.unsqueeze(-1)
-        return self.radial(d) * self.cutoff_fn(d)
+        if self.cutoff_fn is None:
+            return self.radial(d)
+        else:
+            return self.radial(d) * self.cutoff_fn(d)
 
     def replicate(self):
         raise NotImplementedError(f"{self.__class__.__name__} must have 'replicate'!")

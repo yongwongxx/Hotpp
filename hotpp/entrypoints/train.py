@@ -7,12 +7,13 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 import torch.nn.functional as F
 from torch.optim.swa_utils import AveragedModel
 from ase.data import atomic_numbers
-from ..utils import setup_seed
-from ..model import MiaoNet, LitAtomicModule, MultiAtomicModule, TwoBody
+from ..utils import setup_seed, expand_para
+from ..model import MiaoNet, MiaoMiaoNet, LitAtomicModule, MultiAtomicModule, TwoBody, SpinMiaoNet
 from ..layer.cutoff import *
 from ..layer.embedding import AtomicEmbedding
 from ..layer.radial import *
 from ..data import LitAtomsDataset
+
 
 # 别管Warning不Warning，只要能跑不就行
 import warnings
@@ -24,7 +25,76 @@ warnings.filterwarnings(action='ignore', message='invalid value encountered in d
 # torch.set_float32_matmul_precision("high")
 log = logging.getLogger(__name__)
 
-
+DefaultPara = {
+        "workDir": os.getcwd(),
+        "seed": np.random.randint(0, 100000000),
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "outputDir": os.path.join(os.getcwd(), "outDir"),
+        "Data": {
+            "path": os.getcwd(),
+            "trainBatch": 32,
+            "testBatch": 32,
+            "std": "force",
+            "mean": None,
+            "nNeighbor": None,
+            "elements": None,
+            "numWorkers": 0,
+            "pinMemory": False,
+            "batchType": "structure",
+        },
+        "Model": {
+            "net": "miao",
+            "convMode": "node_j",
+            "updateEdge": False,
+            "mode": "normal",
+            "bilinear": False,
+            "activateFn": "silu",
+            "nEmbedding": 64,
+            "nLayer": 5,
+            "maxRWay": 2,
+            "maxMWay": 2,
+            "maxOutWay": 2,
+            "maxNBody": 3,
+            "nHidden": 64,
+            "targetWay": {0 : 'site_energy'},
+            "CutoffLayer": {
+                "type": "poly",
+                "p": 5,
+            },
+            "RadialLayer": {
+                "type": "besselMLP",
+                "nBasis": 8,
+                "nHidden": [64, 64, 64],
+                "activateFn": "silu",
+            },
+            "Repulsion": 0,
+            "Spin": False,
+        },
+        "Train": {
+            "maxEpoch": 10000,
+            "maxStep": 1000000,
+            "allowMissing": False,
+            "targetProp": ["energy", "forces"],
+            "weight": [0.1, 1.0],
+            "forceScale": 0.,
+            "evalStepInterval": 50,
+            "evalEpochInterval": 1,
+            "logInterval": 50,
+            "saveStart": 1000,
+            "evalTest": True,
+            "gradClip": None,
+            "Optimizer": {
+                "type": "Adam",
+                "amsGrad": True,
+                "weightDecay": 0.,
+                "learningRate": 0.01,
+                },
+            "LrScheduler": {
+                "type": "constant",
+            },
+            "emaDecay": 0.,
+        },
+    }
 
 class SaveModelCheckpoint(ModelCheckpoint):
     """
@@ -59,34 +129,34 @@ class LogAllLoss(pl.Callback):
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         if trainer.global_rank == 0:
             loss_metrics = trainer.callback_metrics
-            self.train_loss['total'].append(loss_metrics['train_loss'].detach().cpu().numpy())
+            self.train_loss['total'].append(np.sqrt(loss_metrics['train_loss'].detach().cpu().numpy()))
             for prop in self.properties:
                 prop = "forces" if prop == "direct_forces" else prop
-                self.train_loss[prop].append(loss_metrics[f'train_{prop}'].detach().cpu().numpy())
+                self.train_loss[prop].append(np.sqrt(loss_metrics[f'train_{prop}'].detach().cpu().numpy()))
 
     def on_validation_epoch_end(self, trainer, pl_module):
         if trainer.global_rank == 0:
             if not self.title:
-                content = f"{'epoch':^10}|{'lr':^10}|{'total':^21}"
+                content = f"{'epoch':^10}|{'step':^10}|{'lr':^10}|{'total':^21}"
                 for prop in self.properties:
                     content += f"|{prop:^21}"
                 log.info(content)
                 self.title = True
             epoch = trainer.current_epoch
-            if epoch > 0:
-                lr = trainer.optimizers[0].param_groups[0]["lr"]
-                loss_metrics = trainer.callback_metrics
-                train_loss = np.mean(self.train_loss['total'])
-                val_loss = loss_metrics['val_loss'].detach().cpu().numpy()
-                content = f"{epoch:^10}|{lr:^10.2e}|{train_loss:^10.4f}/{val_loss:^10.4f}"
-                for prop in self.properties:
-                    prop = "forces" if prop == "direct_forces" else prop
-                    train_prop_loss = np.mean(self.train_loss[prop])
-                    val_prop_loss = loss_metrics[f'val_{prop}'].detach().cpu().numpy()
-                    content += f"|{train_prop_loss:^10.4f}/{val_prop_loss:^10.4f}"
-                log.info(content)
-                for prop in self.train_loss:
-                    self.train_loss[prop] = []
+            step = trainer.global_step
+            lr = trainer.optimizers[0].param_groups[0]["lr"]
+            loss_metrics = trainer.callback_metrics
+            train_loss = np.mean(self.train_loss['total'])
+            val_loss = np.sqrt(loss_metrics['val_loss'].detach().cpu().numpy())
+            content = f"{epoch:^10}|{step:^10}|{lr:^10.2e}|{train_loss:^10.4f}/{val_loss:^10.4f}"
+            for prop in self.properties:
+                prop = "forces" if prop == "direct_forces" else prop
+                train_prop_loss = np.mean(self.train_loss[prop])
+                val_prop_loss = np.sqrt(loss_metrics[f'val_{prop}'].detach().cpu().numpy())
+                content += f"|{train_prop_loss:^10.4f}/{val_prop_loss:^10.4f}"
+            log.info(content)
+            for prop in self.train_loss:
+                self.train_loss[prop] = []
 
 def update_dict(d1, d2):
     for key in d2:
@@ -176,7 +246,7 @@ def get_model(p_dict, elements, mean, std, n_neighbor):
     model_dict = p_dict['Model']
     target = p_dict['Train']['targetProp']
     target_way = {}
-    if ("energy" in target) or ("forces" in target) or ("virial" in target):
+    if ("energy" in target) or ("forces" in target) or ("virial" in target) or ("spin_torques" in target):
         target_way["site_energy"] = 0
     if "dipole" in target:
         target_way["dipole"] = 1
@@ -191,97 +261,88 @@ def get_model(p_dict, elements, mean, std, n_neighbor):
     cut_fn = get_cutoff(p_dict)
     emb = AtomicEmbedding(elements, model_dict['nEmbedding'])  # only support atomic embedding now
     radial_fn = get_radial(p_dict, cut_fn)
-    model = MiaoNet(embedding_layer=emb,
-                    radial_fn=radial_fn,
-                    n_layers=model_dict['nLayer'],
-                    max_r_way=model_dict['maxRWay'],
-                    max_out_way=model_dict['maxOutWay'],
-                    output_dim=model_dict['nHidden'],
-                    activate_fn=model_dict['activateFn'],
-                    target_way=target_way,
-                    mean=mean,
-                    std=std,
-                    norm_factor=n_neighbor,
-                    mode=model_dict['mode'],
-                    bilinear=model_dict['bilinear']).to(p_dict['device'])
+    max_r_way = expand_para(model_dict['maxRWay'], model_dict['nLayer'])
+    max_out_way = expand_para(model_dict['maxOutWay'], model_dict['nLayer'])
+    output_dim = expand_para(model_dict['nHidden'], model_dict['nLayer'])
+    max_n_body = expand_para(model_dict['maxNBody'], model_dict['nLayer'])
+
+    if model_dict['net'] == 'miao':
+        model = MiaoNet(embedding_layer=emb,
+                        radial_fn=radial_fn,
+                        n_layers=model_dict['nLayer'],
+                        max_r_way=max_r_way,
+                        max_out_way=max_out_way,
+                        output_dim=output_dim,
+                        activate_fn=model_dict['activateFn'],
+                        target_way=target_way,
+                        mean=mean,
+                        std=std,
+                        norm_factor=n_neighbor,
+                        bilinear=model_dict['bilinear'],
+                        conv_mode=model_dict['convMode'],
+                        update_edge=model_dict['updateEdge'],
+                        ).to(p_dict['device'])
+    elif model_dict['net'] == 'miaomiao':
+        model = MiaoMiaoNet(embedding_layer=emb,
+                        radial_fn=radial_fn,
+                        n_layers=model_dict['nLayer'],
+                        max_r_way=max_r_way,
+                        max_out_way=max_out_way,
+                        max_n_body=max_n_body,
+                        output_dim=output_dim,
+                        activate_fn=model_dict['activateFn'],
+                        target_way=target_way,
+                        mean=mean,
+                        std=std,
+                        norm_factor=n_neighbor,
+                        bilinear=model_dict['bilinear'],
+                        conv_mode=model_dict['convMode'],
+                        update_edge=model_dict['updateEdge'],
+                        ).to(p_dict['device'])
+    elif model_dict['net'] == 'spinmiao':
+        max_r_way = expand_para(model_dict['maxRWay'], model_dict['nLayer'] + model_dict['nSpinLayer'])
+        max_out_way = expand_para(model_dict['maxOutWay'], model_dict['nLayer'] + model_dict['nSpinLayer'])
+        output_dim = expand_para(model_dict['nHidden'], model_dict['nLayer'] + model_dict['nSpinLayer'])
+        max_m_way = expand_para(model_dict['maxMWay'], model_dict['nSpinLayer'])
+        spin_radial_fn = SpinChebyshevPoly(spin_max=p_dict['maxSpin'], n_max=12)
+        model = SpinMiaoNet(embedding_layer=emb,
+                            spin_radial_fn=spin_radial_fn,
+                        radial_fn=radial_fn,
+                        n_layers=model_dict['nLayer'],
+                        n_spin_layers=model_dict['nSpinLayer'],
+                        max_r_way=max_r_way,
+                        max_m_way=max_m_way,
+                        max_out_way=max_out_way,
+                        output_dim=output_dim,
+                        activate_fn=model_dict['activateFn'],
+                        target_way=target_way,
+                        mean=mean,
+                        std=std,
+                        norm_factor=n_neighbor,
+                        ).to(p_dict['device'])
     assert isinstance(model_dict['Repulsion'], int), "Repulsion should be int!"
     if model_dict['Repulsion'] > 0:
         model = MultiAtomicModule({'main': model, 
                                    'repulsion': TwoBody(embedding_layer=emb,
                                                         cutoff_fn=cut_fn,
                                                         k_max=model_dict['Repulsion'])})
+
     return model
 
 
 def main(*args, input_file='input.yaml', load_model=None, load_checkpoint=None, **kwargs):
     # Default values
-    p_dict = {
-        "workDir": os.getcwd(),
-        "seed": np.random.randint(0, 100000000),
-        "device": "cuda" if torch.cuda.is_available() else "cpu",
-        "outputDir": os.path.join(os.getcwd(), "outDir"),
-        "Data": {
-            "path": os.getcwd(),
-            "trainBatch": 32,
-            "testBatch": 32,
-            "std": "force",
-            "mean": None,
-            "nNeighbor": None,
-            "elements": None,
-            "numWorkers": 0,
-            "pinMemory": False,
-        },
-        "Model": {
-            "mode": "normal",
-            "bilinear": False,
-            "activateFn": "silu",
-            "nEmbedding": 64,
-            "nLayer": 5,
-            "maxRWay": 2,
-            "maxOutWay": 2,
-            "nHidden": 64,
-            "targetWay": {0 : 'site_energy'},
-            "CutoffLayer": {
-                "type": "poly",
-                "p": 5,
-            },
-            "RadialLayer": {
-                "type": "besselMLP",
-                "nBasis": 8,
-                "nHidden": [64, 64, 64],
-                "activateFn": "silu",
-            },
-            "Repulsion": 0,
-        },
-        "Train": {
-            "maxEpoch": 10000,
-            "maxStep": 1000000,
-            "allowMissing": False,
-            "targetProp": ["energy", "forces"],
-            "weight": [0.1, 1.0],
-            "forceScale": 0.,
-            "evalStepInterval": 50,
-            "evalEpochInterval": 1,
-            "logInterval": 50,
-            "saveStart": 1000,
-            "evalTest": True,
-            "gradClip": None,
-            "Optimizer": {
-                "type": "Adam",
-                "amsGrad": True,
-                "weightDecay": 0.,
-                "learningRate": 0.01,
-                },
-            "LrScheduler": {
-                "type": "constant",
-            },
-            "emaDecay": 0.,
-        },
-    }
+    p_dict = DefaultPara
     with open(input_file) as f:
         update_dict(p_dict, yaml.load(f, Loader=yaml.FullLoader))
 
-    os.makedirs(p_dict["outputDir"], exist_ok=True)
+    if os.path.exists(p_dict["outputDir"]):
+        i = 1
+        while os.path.exists(f"{p_dict['outputDir']}{i}"):
+            i += 1
+        shutil.move(p_dict["outputDir"], f"{p_dict['outputDir']}{i}")
+        os.system(f"cp log.txt input.yaml allpara.yaml {p_dict['outputDir']}{i}")
+    os.makedirs(p_dict["outputDir"])
 
     with open("allpara.yaml", "w") as f:
         yaml.dump(p_dict, f)

@@ -1,9 +1,8 @@
 import sys
 import torch
 import numpy as np
-import itertools
 import torch.nn.functional as F
-from typing import Iterable, Optional, Dict, List, Callable, Tuple
+from typing import Optional, Dict, List, Callable, Tuple, Union
 
 
 def setup_seed(seed):
@@ -61,7 +60,7 @@ def add_scaling(batch_data  : Dict[str, torch.Tensor],) -> Dict[str, torch.Tenso
     return batch_data
 
 
-def find_distances(batch_data  : Dict[str, torch.Tensor],) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def find_distances(batch_data  : Dict[str, torch.Tensor],) -> Tuple[torch.Tensor]:
     if 'rij' not in batch_data:
         idx_i = batch_data["idx_i"]
         if 'ghost_neigh' in batch_data:                  # neighbor for lammps calculation
@@ -79,6 +78,18 @@ def find_distances(batch_data  : Dict[str, torch.Tensor],) -> Tuple[torch.Tensor
     return batch_data['rij'], batch_data['dij'], batch_data['uij']
 
 
+def find_spin(batch_data  : Dict[str, torch.Tensor],) -> Tuple[torch.Tensor]:
+    if 'mi' not in batch_data:
+        batch_data['mi'] = torch.norm(batch_data['spin'], dim=-1)
+    if 'si' not in batch_data:
+        norm = torch.where(batch_data['mi'] == 0.0, 1.0, batch_data['mi'])
+        batch_data['si'] = batch_data['spin'] / norm.unsqueeze(-1)
+    if 'sij' not in batch_data:
+        batch_data['sij'] = torch.sum(
+            batch_data['si'][batch_data['idx_i']] * batch_data['si'][batch_data['idx_j']], dim=1)
+    return batch_data['mi'], batch_data['si'], batch_data['sij']
+
+
 def find_moment(batch_data  : Dict[str, torch.Tensor],
                 n_way       : int
                 ) -> torch.Tensor:
@@ -87,6 +98,13 @@ def find_moment(batch_data  : Dict[str, torch.Tensor],
         batch_data['moment' + str(n_way)] = multi_outer_product(batch_data['uij'], n_way)
     return batch_data['moment' + str(n_way)]
 
+
+def find_spin_moment(batch_data  : Dict[str, torch.Tensor],
+                     n_way       : int
+                     ) -> torch.Tensor:
+    if 'spin_moment' + str(n_way) not in batch_data:
+        batch_data['spin_moment' + str(n_way)] = multi_outer_product(batch_data['si'], n_way)
+    return batch_data['spin_moment' + str(n_way)]
 
 def get_elements(frames):
     elements = set()
@@ -142,13 +160,24 @@ def get_default_acsf_hyperparameters(rmin, cutoff):
     return etas, rss
 
 
-def expand_para(para: int or List, n: int):
+def expand_para(para: Union[int, List[int]], n: int):
     assert isinstance(para, int) or isinstance(para, list)
     if isinstance(para, int):
         para = [para] * n
     if isinstance(para, list):
         assert len(para) == n
     return para
+
+
+def res_add(t1: Dict[int, torch.Tensor], 
+            t2: Dict[int, torch.Tensor]
+            ) -> Dict[int, torch.Tensor]:
+    for k in t2:
+        if k in t1:
+            t1[k] = t1[k] + t2[k]
+        else:
+            t1[k] = t2[k]
+    return t1
 
 
 @torch.jit.script
@@ -194,3 +223,51 @@ def _aggregate(moment_tensor: torch.Tensor,
         sum_axis = [i for i in range(in_way - coupling_way + 2, in_way + 2)]
         output_tensor = torch.sum(output_tensor, dim=sum_axis)
     return output_tensor
+
+
+@torch.jit.script
+def _aggregate_new(T1: torch.Tensor,
+                   T2: torch.Tensor,
+                   way1 : int,
+                   way2 : int,
+                   way3 : int,
+                   ) -> torch.Tensor:
+    coupling_way = (way1 + way2 - way3) // 2
+    n_way = way1 + way2 - coupling_way + 2
+    output_tensor = expand_to(T1, n_way, dim=-1) * expand_to(T2, n_way, dim=2)
+    # T1:  [n_edge, n_channel, n_dim, n_dim, ...,     1] 
+    # T2:  [n_edge, n_channel,     1,     1, ..., n_dim]  
+    # with (way1 + way2 - coupling_way) dim after n_channel
+    # We should sum up (coupling_way) n_dim
+    if coupling_way > 0:
+        sum_axis = [i for i in range(way1 - coupling_way + 2, way1 + 2)]
+        output_tensor = torch.sum(output_tensor, dim=sum_axis)
+    return output_tensor
+
+        
+def aggregate_tensors_fn(way1 : int,
+                         way2 : int,
+                         way3 : int,
+                         ) -> Callable:
+    coupling_way = (way1 + way2 - way3) // 2
+    n_way = way1 + way2 - coupling_way + 2
+    sum_axis = [i for i in range(way1 - coupling_way + 2, way1 + 2)]
+    def aggregate_tensors(T1: torch.Tensor,
+                          T2: torch.Tensor,
+                          ) -> torch.Tensor:
+        output_tensor = expand_to(T1, n_way, dim=-1) * expand_to(T2, n_way, dim=2)
+        if coupling_way > 0:
+            output_tensor = torch.sum(output_tensor, dim=sum_axis)
+        return output_tensor
+    # return torch.compile(aggregate_tensors)
+    return torch.jit.script(aggregate_tensors)
+
+
+class TensorAggregateOP:
+    oplist = {}
+    @classmethod
+    def set_max(cls, max_way1, max_way2, max_way3):
+        for way1 in range(max_way1 + 1):
+            for way2 in range(max_way2 + 1):
+                for way3 in range(abs(way2 - way1), min(max_way3, way1 + way2) + 1, 2):
+                    cls.oplist[(way1, way2, way3)] = aggregate_tensors_fn(way1, way2, way3)

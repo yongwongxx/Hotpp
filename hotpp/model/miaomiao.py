@@ -3,19 +3,23 @@ import torch
 from torch import nn
 from .base import AtomicModule
 from ..layer import EmbeddingLayer, RadialLayer, ReadoutLayer
-from ..layer.equivalent import NonLinearLayer, GraphConvLayer, SelfInteractionLayer
-from ..utils import find_distances, _scatter_add, res_add, TensorAggregateOP
+from ..layer.equivalent import MultiBodyLayer, GraphConvLayer, NonLinearLayer, GraphNorm
+from ..utils import find_distances, _scatter_add, res_add
+from .miao import MiaoNet
 
 
+#TODO graph norm
 class UpdateNodeBlock(nn.Module):
     def __init__(self,
                  radial_fn      : RadialLayer,
+                 max_n_body     : int,
                  max_r_way      : int,
                  max_in_way     : int,
                  max_out_way    : int,
                  input_dim      : int,
                  output_dim     : int,
                  norm_factor    : float=1.0,
+                 norm           : str='none',
                  activate_fn    : str='silu',
                  conv_mode      : Literal['node_j', 'node_edge']='node_j',
                  ) -> None:
@@ -28,13 +32,19 @@ class UpdateNodeBlock(nn.Module):
                                          max_r_way=max_r_way,
                                          conv_mode=conv_mode,
                                          )
-        self.self_interact = SelfInteractionLayer(input_dim=input_dim,
-                                                  max_way=max_out_way,
-                                                  output_dim=output_dim)
+        self.self_interact = MultiBodyLayer(max_n_body=max_n_body,
+                                            input_dim=input_dim, 
+                                            output_dim=output_dim,
+                                            max_way=max_out_way)
         self.non_linear = NonLinearLayer(activate_fn=activate_fn,
                                          max_way=max_out_way,
                                          input_dim=output_dim)
         self.register_buffer("norm_factor", torch.tensor(norm_factor))
+
+        self.norm = None
+        if norm == 'graph':
+            self.norm = GraphNorm(max_way=max_out_way, n_channel=output_dim)
+            
 
     def forward(self,
                 node_info    : Dict[int, torch.Tensor],
@@ -48,12 +58,15 @@ class UpdateNodeBlock(nn.Module):
         for way in message.keys():
             res_info[way] = _scatter_add(message[way], idx_i, dim_size=n_atoms) / self.norm_factor
         res_info = self.non_linear(self.self_interact(res_info))
+        if self.norm is not None:
+            res_info = self.norm(res_info, batch_data['batch'], batch_data['n_atoms'])
         return res_add(node_info, res_info)
 
 
 class UpdateEdgeBlock(nn.Module):
     def __init__(self,
                  radial_fn      : RadialLayer,
+                 max_n_body     : int,
                  max_r_way      : int,
                  max_in_way     : int,
                  max_out_way    : int,
@@ -70,9 +83,10 @@ class UpdateEdgeBlock(nn.Module):
                                          max_out_way=max_out_way,
                                          max_r_way=max_r_way,
                                          conv_mode=conv_mode)
-        self.self_interact = SelfInteractionLayer(input_dim=input_dim,
-                                                  max_way=max_out_way,
-                                                  output_dim=output_dim)
+        self.self_interact = MultiBodyLayer(max_n_body=max_n_body,
+                                            input_dim=input_dim,
+                                            max_way=max_out_way,
+                                            output_dim=output_dim)
         self.non_linear = NonLinearLayer(activate_fn=activate_fn,
                                          max_way=max_out_way,
                                          input_dim=output_dim)
@@ -86,9 +100,11 @@ class UpdateEdgeBlock(nn.Module):
         res_info = self.non_linear(self.self_interact(message))
         return res_add(edge_info, res_info)
 
-class MiaoBlock(nn.Module):
+
+class MiaoMiaoBlock(nn.Module):
     def __init__(self,
                  radial_fn      : RadialLayer,
+                 max_n_body     : int,
                  max_r_way      : int,
                  max_in_way     : int,
                  max_out_way    : int,
@@ -101,26 +117,27 @@ class MiaoBlock(nn.Module):
                  ) -> None:
         super().__init__()
         self.node_block = UpdateNodeBlock(radial_fn=radial_fn, 
+                                          max_n_body=max_n_body,
                                           max_r_way=max_r_way, 
                                           max_in_way=max_in_way,
                                           max_out_way=max_out_way,
                                           input_dim=input_dim, 
                                           output_dim=output_dim, 
                                           norm_factor=norm_factor, 
-                                          activate_fn=activate_fn,
-                                          conv_mode=conv_mode,
-                                          )
+                                          activate_fn=activate_fn, 
+                                          conv_mode=conv_mode)
         if update_edge:
             self.edge_block = UpdateEdgeBlock(radial_fn=radial_fn, 
-                                              max_r_way=max_r_way, 
-                                              max_in_way=max_in_way,
-                                              max_out_way=max_out_way,
-                                              input_dim=input_dim,
-                                              output_dim=output_dim,
-                                              activate_fn=activate_fn,
-                                              conv_mode=conv_mode,
-                                              )
+                                            max_n_body=max_n_body,
+                                            max_r_way=max_r_way, 
+                                            max_in_way=max_in_way,
+                                            max_out_way=max_out_way,
+                                            input_dim=input_dim,
+                                            output_dim=output_dim,
+                                            activate_fn=activate_fn,
+                                            conv_mode=conv_mode)
         self.update_edge = update_edge
+
 
     def forward(self,
                 node_info    : Dict[int, torch.Tensor],
@@ -132,15 +149,12 @@ class MiaoBlock(nn.Module):
             edge_info = self.edge_block(node_info=node_info, edge_info=edge_info, batch_data=batch_data)
         return node_info, edge_info
 
-class MiaoNet(AtomicModule):
-    """
-    Miao nei ga
-    duo xi da miao nei
-    """
+class MiaoMiaoNet(MiaoNet):
     def __init__(self,
                  embedding_layer : EmbeddingLayer,
                  radial_fn       : RadialLayer,
                  n_layers        : int,
+                 max_n_body      : List[int],
                  max_r_way       : List[int],
                  max_out_way     : List[int],
                  output_dim      : List[int],
@@ -153,61 +167,22 @@ class MiaoNet(AtomicModule):
                  conv_mode       : Literal['node_j', 'node_edge']='node_j',
                  update_edge     : bool=False,
                  ):
-        super().__init__()
-
-        self.register_buffer("mean", torch.tensor(mean).float())
-        self.register_buffer("std", torch.tensor(std).float())
-        self.embedding_layer = embedding_layer
-        self.radial_fn = radial_fn
-
-        max_in_way = [0] + max_out_way[1:]
-        hidden_nodes = [embedding_layer.n_channel] + output_dim
-        self.en_equivalent_blocks = self.get_eq_blocks(activate_fn, max_r_way, max_in_way, max_out_way,
-            hidden_nodes, norm_factor, conv_mode, update_edge, n_layers)
-
-        self.readout_layer = ReadoutLayer(n_dim=hidden_nodes[-1],
-                                          target_way=target_way,
-                                          activate_fn=activate_fn,
-                                          bilinear=bilinear,
-                                          e_dim=embedding_layer.n_channel)
+        self.max_n_body = max_n_body
+        super().__init__(embedding_layer, radial_fn, n_layers, max_r_way, max_out_way, output_dim, activate_fn, target_way, mean, std, norm_factor, bilinear, conv_mode, update_edge)
         
-        # TensorAggregateOP.set_max(max(max_in_way), max(max_out_way), max(max_r_way))
-
-    def calculate(self,
-                  batch_data : Dict[str, torch.Tensor],
-                  ) -> Dict[str, torch.Tensor]:
-        node_info, edge_info = self.get_init_info(batch_data)
-        for en_equivalent in self.en_equivalent_blocks:
-            node_info, edge_info = en_equivalent(node_info, edge_info, batch_data)
-        output_tensors = self.readout_layer(node_info, None)
-        if 'site_energy' in output_tensors:
-            output_tensors['site_energy'] = output_tensors['site_energy'] * self.std + self.mean
-        if 'direct_forces' in output_tensors:
-            output_tensors['direct_forces'] = output_tensors['direct_forces'] * self.std
-        return output_tensors
-
-    def get_init_info(self,
-                      batch_data : Dict[str, torch.Tensor],
-                      ):
-        emb = self.embedding_layer(batch_data=batch_data)
-        node_info = {0: emb}
-        _, dij, _ = find_distances(batch_data)
-        rbf = self.radial_fn(dij)
-        edge_info = {0: rbf}
-        return node_info, edge_info
-
     def get_eq_blocks(self, activate_fn, max_r_way, max_in_way, max_out_way,
             hidden_nodes, norm_factor, conv_mode, update_edge, n_layers):
         return nn.ModuleList([
-            MiaoBlock(activate_fn=activate_fn,
-                      radial_fn=self.radial_fn.replicate(),
-                      # Use factory method, so the radial_fn in each layer are different
-                      max_r_way=max_r_way[i],
-                      max_in_way=max_in_way[i],
-                      max_out_way=max_out_way[i],
-                      input_dim=hidden_nodes[i],
-                      output_dim=hidden_nodes[i + 1],
-                      norm_factor=norm_factor,
-                      conv_mode=conv_mode,
-                      update_edge=update_edge,
-                      ) for i in range(n_layers)])
+            MiaoMiaoBlock(activate_fn=activate_fn,
+                          radial_fn=self.radial_fn.replicate(),
+                          # Use factory method, so the radial_fn in each layer are different
+                          max_n_body=self.max_n_body[i],
+                          max_r_way=max_r_way[i],
+                          max_in_way=max_in_way[i],
+                          max_out_way=max_out_way[i],
+                          input_dim=hidden_nodes[i],
+                          output_dim=hidden_nodes[i + 1],
+                          norm_factor=norm_factor,
+                          conv_mode=conv_mode,
+                          update_edge=update_edge,
+                          ) for i in range(n_layers)])

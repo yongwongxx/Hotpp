@@ -14,8 +14,9 @@ __pycache__/
 *$py.class
 
 # Examples
-
-
+examples/*/outDir
+examples/*/eval
+examples/*/allpara.yaml
 # C extensions
 *.so
 
