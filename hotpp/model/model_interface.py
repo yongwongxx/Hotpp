@@ -4,7 +4,10 @@ from ..loss import Loss, MissingValueLoss, ForceScaledLoss
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
+import logging
 
+
+log = logging.getLogger(__name__)
 
 class LitAtomicModule(pl.LightningModule):
 
@@ -17,7 +20,7 @@ class LitAtomicModule(pl.LightningModule):
         self.model = model
         self.loss_calculator = self.get_loss_calculator()
 
-        grad_prop = set(['forces', 'virial', 'stress'])
+        grad_prop = set(['forces', 'virial', 'stress', 'spin_torques'])
         self.required_derivatives = len(grad_prop.intersection(self.p_dict["Train"]['targetProp'])) > 0
         # self.save_hyperparameters(ignore=['model'])
 
@@ -77,8 +80,9 @@ class LitAtomicModule(pl.LightningModule):
         no_decay_interactions = {}
         embedding = {}
         readout = {}
+        others = {}
         for name, param in self.model.named_parameters():
-            if "son_equivalent_layers" in name:
+            if "equivalent" in name:
                 if "weight" in name:
                     decay_interactions[name] = param
                 else:
@@ -86,9 +90,15 @@ class LitAtomicModule(pl.LightningModule):
             else:
                 if "embedding" in name:
                     embedding[name] = param
-                if "readout" in name:
+                elif "readout" in name:
                     readout[name] = param
-
+                else:
+                    others[name] = param
+        log.debug(f"\nEquivalent weight: {list(decay_interactions.keys())}"
+                  f"\nEquivalent bias  : {list(no_decay_interactions.keys())}"
+                  f"\nEmbedding        : {list(embedding.keys())}"
+                  f"\nReadout          : {list(readout.keys())}"
+                  f"\nOthers           : {list(others.keys())}")
         param_options = dict(
             params=[
                 {
@@ -109,6 +119,11 @@ class LitAtomicModule(pl.LightningModule):
                 {
                     "name": "readouts",
                     "params": list(readout.values()),
+                    "weight_decay": 0.0,
+                },
+                {
+                    "name": "others",
+                    "params": list(others.values()),
                     "weight_decay": 0.0,
                 },
             ],

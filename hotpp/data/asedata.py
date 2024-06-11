@@ -11,11 +11,13 @@ class ASEData(AtomsDataset):
                  frames     : Optional[List[Atoms]]=None,
                  indices    : Optional[List[int]]=None,
                  properties : Optional[List[str]]=['energy', 'forces'],
+                 spin       : bool=False,
                  cutoff     : float=4.0,
                  ) -> None:
         super().__init__(indices=indices, cutoff=cutoff)
         self.frames = frames
         self.properties = properties
+        self.spin = spin
 
     def __len__(self):
         if self.indices is None:
@@ -28,7 +30,8 @@ class ASEData(AtomsDataset):
             idx = self.indices[idx]
         data = self.atoms_to_data(self.frames[idx],
                                   properties=self.properties,
-                                  cutoff=self.cutoff)
+                                  cutoff=self.cutoff, 
+                                  spin=self.spin)
         return data
 
     def extend(self, frames):
@@ -41,11 +44,13 @@ class ASEDBData(AtomsDataset):
                  datapath   : Optional[List[Atoms]]=None,
                  indices    : Optional[List[int]]=None,
                  properties : Optional[List[str]]=['energy', 'forces'],
+                 spin       : bool=False,
                  cutoff     : float=4.0,
                  ) -> None:
         super().__init__(indices=indices, cutoff=cutoff)
         self.conn = connect(datapath, use_lock_file=False)
         self.properties = properties
+        self.spin = spin
 
     def __len__(self):
         if self.indices is None:
@@ -65,5 +70,6 @@ class ASEDBData(AtomsDataset):
                       )
         data = self.atoms_to_data(atoms,
                                   properties=self.properties,
-                                  cutoff=self.cutoff)
+                                  cutoff=self.cutoff,
+                                  spin=self.spin)
         return data

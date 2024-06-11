@@ -1,5 +1,6 @@
 import logging
 import os
+from random import Random
 import numpy as np
 from copy import copy
 from typing import Optional, List, Dict, Tuple, Union
@@ -7,7 +8,7 @@ from . import *
 from ase.io import read
 import pytorch_lightning as pl
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, BatchSampler, RandomSampler, SequentialSampler
 
 
 log = logging.getLogger(__name__)
@@ -40,11 +41,13 @@ class LitAtomsDataset(pl.LightningDataModule):
                 frames = []
             dataset = ASEData(frames=frames,
                               properties=self.p_dict['Train']['targetProp'],
-                              cutoff=self.p_dict['cutoff'])
+                              cutoff=self.p_dict['cutoff'],
+                              spin=self.p_dict['Model']['Spin'])
         elif data_dict['type'] == 'ase-db':
             dataset = ASEDBData(datapath=os.path.join(data_dict['path'], data_dict['name']),
                                 properties=self.p_dict['Train']['targetProp'],
-                                cutoff=self.p_dict['cutoff'])
+                                cutoff=self.p_dict['cutoff'],
+                                spin=self.p_dict['Model']['Spin'])
         return dataset
 
     def split_dataset(self):
@@ -77,12 +80,20 @@ class LitAtomsDataset(pl.LightningDataModule):
 
     def train_dataloader(self):
         if self._train_dataloader is None:
-            self._train_dataloader = DataLoader(self.trainset,
-                          batch_size=self.p_dict["Data"]["trainBatch"],
-                          shuffle=True,
-                          collate_fn=atoms_collate_fn,
-                          num_workers=self.p_dict["Data"]["numWorkers"],
-                          pin_memory=self.p_dict["Data"]["pinMemory"])
+            sampler = RandomSampler(self.trainset)
+            if self.p_dict["Data"]["batchType"] == "structure":
+                batch_sampler = BatchSampler(sampler, batch_size=self.p_dict["Data"]["trainBatch"], drop_last=False)
+            elif self.p_dict["Data"]["batchType"] == "edge":
+                batch_sampler = MaxEdgeSampler(sampler, batch_size=self.p_dict["Data"]["trainBatch"])
+            elif self.p_dict["Data"]["batchType"] == "node":
+                batch_sampler = MaxNodeSampler(sampler, batch_size=self.p_dict["Data"]["trainBatch"])
+            self._train_dataloader = DataLoader(
+                self.trainset,
+                batch_sampler=batch_sampler,
+                collate_fn=atoms_collate_fn,
+                num_workers=self.p_dict["Data"]["numWorkers"],
+                pin_memory=self.p_dict["Data"]["pinMemory"]
+                )
             log.debug(f'numWorkers: {self.p_dict["Data"]["numWorkers"]}')
         return self._train_dataloader
 
@@ -91,12 +102,20 @@ class LitAtomsDataset(pl.LightningDataModule):
 
     def test_dataloader(self):
         if self._test_dataloader is None:
-            self._test_dataloader = DataLoader(self.testset,
-                          batch_size=self.p_dict["Data"]["testBatch"],
-                          shuffle=False,
-                          collate_fn=atoms_collate_fn,
-                          num_workers=self.p_dict["Data"]["numWorkers"],
-                          pin_memory=self.p_dict["Data"]["pinMemory"])
+            sampler = SequentialSampler(self.testset)
+            if self.p_dict["Data"]["batchType"] == "structure":
+                batch_sampler = BatchSampler(sampler, batch_size=self.p_dict["Data"]["testBatch"], drop_last=False)
+            elif self.p_dict["Data"]["batchType"] == "edge":
+                batch_sampler = MaxEdgeSampler(sampler, batch_size=self.p_dict["Data"]["testBatch"])
+            elif self.p_dict["Data"]["batchType"] == "node":
+                batch_sampler = MaxNodeSampler(sampler, batch_size=self.p_dict["Data"]["testBatch"])
+            self._test_dataloader = DataLoader(
+                self.testset,
+                batch_sampler=batch_sampler,
+                collate_fn=atoms_collate_fn,
+                num_workers=self.p_dict["Data"]["numWorkers"],
+                pin_memory=self.p_dict["Data"]["pinMemory"]
+                )
         return self._test_dataloader
 
     def calculate_stats(self):

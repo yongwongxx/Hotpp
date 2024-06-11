@@ -24,6 +24,9 @@ class AtomicModule(nn.Module):
             required_derivatives.append('scaling')
             batch_data['scaling'].requires_grad_()
             add_scaling(batch_data)
+        if 'spin_torques' in properties:
+            required_derivatives.append('spin')
+            batch_data['spin'].requires_grad_()
         output_tensors = self.calculate(batch_data)
         #######################################
         if 'dipole' in output_tensors:
@@ -73,6 +76,10 @@ class AtomicModule(nn.Module):
             if dE_dl is not None:
                 batch_data['virial_p'] = -dE_dl
             #######################################
+        if 'spin_torques' in properties:
+            dE_dS = grads[required_derivatives.index('spin')]
+            if dE_dS is not None:
+                batch_data['spin_torques_p'] = -dE_dS
         return batch_data
 
     def calculate(self):

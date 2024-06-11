@@ -36,14 +36,6 @@ class SmoothCosineCutoff(CutoffLayer):
         return cutoffs
 
 
-# class PolynomialCutoff(CutoffLayer):
-#     def forward(self, 
-#                 distances : torch.Tensor,
-#                 ) -> torch.Tensor:
-#         cutoffs = (1.0 - (distances / self.cutoff) ** 2) ** 3
-#         cutoffs *= (distances < self.cutoff).float()
-#         return cutoffs
-
 class PolynomialCutoff(CutoffLayer):
     def __init__(self,
                  cutoff   : float,

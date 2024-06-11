@@ -26,7 +26,8 @@ def eval(model, data_loader, properties, device):
 
 
 def main(*args, modelfile='model.pt', indices=None, device='cpu', datafile='data.traj',
-         format=None, properties=["energy", "forces"], batchsize=32, num_workers=4, pin_memory=True,
+         format=None, properties=["energy", "forces"], spin=False,
+         batchsize=32, num_workers=4, pin_memory=True,
          **kwargs):
     model = torch.load(modelfile, map_location=device)
     model.eval()
@@ -38,13 +39,15 @@ def main(*args, modelfile='model.pt', indices=None, device='cpu', datafile='data
         dataset = ASEDBData(datapath=datafile,
                             indices=indices,
                             properties=properties,
-                            cutoff=cutoff)
+                            cutoff=cutoff, 
+                            spin=spin)
     else:
         frames = read(datafile, index=':', format=format)
         dataset = ASEData(frames=frames,
                           indices=indices,
                           cutoff=cutoff,
-                          properties=properties)
+                          properties=properties,
+                          spin=spin)
 
     data_loader = DataLoader(dataset,
                              batch_size=batchsize,
