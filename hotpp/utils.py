@@ -60,7 +60,7 @@ def add_scaling(batch_data  : Dict[str, torch.Tensor],) -> Dict[str, torch.Tenso
     return batch_data
 
 
-def find_distances(batch_data  : Dict[str, torch.Tensor],) -> Tuple[torch.Tensor]:
+def find_distances(batch_data  : Dict[str, torch.Tensor],) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if 'rij' not in batch_data:
         idx_i = batch_data["idx_i"]
         if 'ghost_neigh' in batch_data:                  # neighbor for lammps calculation

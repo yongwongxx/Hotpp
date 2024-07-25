@@ -47,6 +47,7 @@ def plot_prop(prop):
              0.15 * s + 0.85 * e,
              "RMSE: {:.3f}\nMAE: {:.3f}".format(rmse, mae), fontsize=14)
     plt.savefig('{}.png'.format(prop))
+    print(f"{prop:^12}: {rmse:.4f} {mae:.4f}")
     return None
 
 

@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from typing import List, Dict, Callable, Any
+from typing import List, Dict, Callable, Any, Optional, Union
 from .equivalent import TensorLinear, TensorBiLinear
 from .activate import TensorActivateDict
 
@@ -21,7 +21,7 @@ class ReadoutLinearMLP(nn.Module):
 
     def forward(self,
                 input_tensor: torch.Tensor,   # [n_batch, n_channel, n_dim, n_dim, ...]
-                emb:          torch.Tensor,   # [n_batch, n_channel]
+                emb:          None,   # [n_batch, n_channel]
                 ):
         return self.layer2(self.activate_fn(self.layer1(input_tensor)))
 
@@ -68,7 +68,7 @@ class ReadoutLayer(nn.Module):
 
     def forward(self,
                 input_tensors : Dict[int, torch.Tensor],
-                emb           : torch.Tensor,
+                emb           : None,
                 ) -> Dict[str, torch.Tensor]:
         output_tensors = torch.jit.annotate(Dict[str, torch.Tensor], {})
         for prop, readout_layer in self.layer_dict.items():
