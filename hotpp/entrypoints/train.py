@@ -251,9 +251,7 @@ def get_model(p_dict, elements, mean, std, n_neighbor):
     if "dipole" in target:
         target_way["dipole"] = 1
     if "polarizability" in target:
-        target_way["polar_00"] = 0
-        target_way["polar_11"] = 0
-        target_way["polar_22"] = 0
+        target_way["polar_diag"] = 0
         target_way["polar_off_diagonal"] = 2
     if "direct_forces" in target:
         assert "forces" not in target_way, "Cannot learn forces and direct_forces at the same time"
@@ -263,6 +261,7 @@ def get_model(p_dict, elements, mean, std, n_neighbor):
     radial_fn = get_radial(p_dict, cut_fn)
     max_r_way = expand_para(model_dict['maxRWay'], model_dict['nLayer'])
     max_out_way = expand_para(model_dict['maxOutWay'], model_dict['nLayer'])
+    max_out_way[-1] = max(target_way.values())
     output_dim = expand_para(model_dict['nHidden'], model_dict['nLayer'])
     max_n_body = expand_para(model_dict['maxNBody'], model_dict['nLayer'])
 

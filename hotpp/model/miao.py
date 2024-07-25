@@ -1,4 +1,4 @@
-from typing import Callable, List, Dict, Optional, Literal
+from typing import Callable, List, Dict, Optional, Literal, Tuple
 import torch
 from torch import nn
 from .base import AtomicModule
@@ -42,7 +42,7 @@ class UpdateNodeBlock(nn.Module):
                 batch_data   : Dict[str, torch.Tensor],
                 ) -> Dict[int, torch.Tensor]:
         message = self.graph_conv(node_info=node_info, edge_info=edge_info, batch_data=batch_data)
-        res_info = {}
+        res_info = torch.jit.annotate(Dict[int, torch.Tensor], {})
         idx_i = batch_data["idx_i"]
         n_atoms = batch_data['atomic_number'].shape[0]
         for way in message.keys():
@@ -120,15 +120,16 @@ class MiaoBlock(nn.Module):
                                               activate_fn=activate_fn,
                                               conv_mode=conv_mode,
                                               )
-        self.update_edge = update_edge
+        else:
+            self.edge_block = None
 
     def forward(self,
                 node_info    : Dict[int, torch.Tensor],
                 edge_info    : Dict[int, torch.Tensor],
                 batch_data   : Dict[str, torch.Tensor],
-                ) -> Dict[int, torch.Tensor]:
+                ) -> Tuple[Dict[int, torch.Tensor], Dict[int, torch.Tensor]]:
         node_info = self.node_block(node_info=node_info, edge_info=edge_info, batch_data=batch_data)
-        if self.update_edge:
+        if self.edge_block is not None:
             edge_info = self.edge_block(node_info=node_info, edge_info=edge_info, batch_data=batch_data)
         return node_info, edge_info
 
@@ -154,13 +155,12 @@ class MiaoNet(AtomicModule):
                  update_edge     : bool=False,
                  ):
         super().__init__()
-
         self.register_buffer("mean", torch.tensor(mean).float())
         self.register_buffer("std", torch.tensor(std).float())
         self.embedding_layer = embedding_layer
         self.radial_fn = radial_fn
 
-        max_in_way = [0] + max_out_way[1:]
+        max_in_way = [0] + max_out_way[:-1]
         hidden_nodes = [embedding_layer.n_channel] + output_dim
         self.en_equivalent_blocks = self.get_eq_blocks(activate_fn, max_r_way, max_in_way, max_out_way,
             hidden_nodes, norm_factor, conv_mode, update_edge, n_layers)
@@ -170,7 +170,6 @@ class MiaoNet(AtomicModule):
                                           activate_fn=activate_fn,
                                           bilinear=bilinear,
                                           e_dim=embedding_layer.n_channel)
-        
         # TensorAggregateOP.set_max(max(max_in_way), max(max_out_way), max(max_r_way))
 
     def calculate(self,
@@ -188,7 +187,7 @@ class MiaoNet(AtomicModule):
 
     def get_init_info(self,
                       batch_data : Dict[str, torch.Tensor],
-                      ):
+                      )->Tuple[Dict[int, torch.Tensor], Dict[int, torch.Tensor]]:
         emb = self.embedding_layer(batch_data=batch_data)
         node_info = {0: emb}
         _, dij, _ = find_distances(batch_data)

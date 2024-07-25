@@ -4,6 +4,8 @@
 # https://github.com/rusty1s/pytorch_scatter/issues/299
 # from torch_scatter import segment_coo
 # Different channel for different order?
+# parameterdict cannot be scripted
+# https://github.com/pytorch/pytorch/issues/128496
 
 import torch
 from torch import nn
@@ -237,6 +239,7 @@ class NonLinearLayer(nn.Module):
 # for different path to the same l (l1, l2 -> l and l3, l4 -> l), use coefficient or a large linear layer
 # number parameters: n_path + n_channel * n_channel vs. npath * n_channel * n_channel
 class TensorProductLayer(nn.Module):
+
     def __init__(self,
                  max_x_way      : int=2,
                  max_y_way      : int=2,
@@ -244,23 +247,24 @@ class TensorProductLayer(nn.Module):
                  ) -> None:
         super().__init__()
         self.combinations = []
-        self.coefficient = nn.ParameterDict()
+        #self.coefficient = nn.ParameterDict()
         for x_way in range(max_x_way + 1):
             for y_way in range(max_y_way + 1):
                 for z_way in range(abs(y_way - x_way), min(max_z_way, x_way + y_way) + 1, 2):
                     self.combinations.append((x_way, y_way, z_way))
-                    self.coefficient[str((x_way, y_way, z_way))] = nn.Parameter(torch.tensor(1.))
+                    #self.coefficient[str((x_way, y_way, z_way))] = nn.Parameter(torch.tensor(1.))
 
     def forward(self,
                 x : Dict[int, torch.Tensor],
                 y : Dict[int, torch.Tensor],
                 ) -> Dict[int, torch.Tensor]:
-        output_tensors = {}
+        output_tensors = torch.jit.annotate(Dict[int, torch.Tensor], {})
         for x_way, y_way, z_way in self.combinations:
             if x_way not in x or y_way not in y:
                 continue
-            output_tensor = self.coefficient[str((x_way, y_way, z_way))] * \
-                _aggregate_new(x[x_way], y[y_way], x_way, y_way, z_way)
+            #coef: torch.Tensor = self.coefficient[str((x_way, y_way, z_way))]
+            #output_tensor = coef * _aggregate_new(x[x_way], y[y_way], x_way, y_way, z_way)
+            output_tensor = _aggregate_new(x[x_way], y[y_way], x_way, y_way, z_way)
             if z_way not in output_tensors:
                 output_tensors[z_way] = output_tensor
             else:
@@ -324,7 +328,7 @@ class MultiBodyLayer(nn.Module):
 
 
 class GraphConvLayer(nn.Module):
-    def __init__(self, 
+    def __init__(self,
                  radial_fn      : RadialLayer,
                  input_dim      : int,
                  output_dim     : int,
@@ -342,7 +346,7 @@ class GraphConvLayer(nn.Module):
             max_in_way (int, optional): max order of input tensors. Defaults to 2.
             max_r_way (int, optional): max order of filter tensors. Defaults to 2.
             max_out_way (int, optional): max order of output tensors. Defaults to 2.
-            mode ('node_j' or 'node_edge', optional): 
+            mode ('node_j' or 'node_edge', optional):
                 'node_j' use node_info['idx_j'] only.
                 'node_edge' use node_info['idx_i'] | node_info['idx_j'] | edge_info.
                 Defaults to 'node_j'.
@@ -361,7 +365,6 @@ class GraphConvLayer(nn.Module):
             self.U = SelfInteractionLayer(input_dim=input_dim * 3,
                                           max_way=max_in_way,
                                           output_dim=output_dim)
-
         self.tensor_product = TensorProductLayer(max_x_way=max_in_way,
                                                  max_y_way=max_r_way,
                                                  max_z_way=max_out_way)
@@ -370,15 +373,15 @@ class GraphConvLayer(nn.Module):
         self.conv_mode = conv_mode
 
     def forward(self,
-                node_info  : Dict[int, torch.tensor],
-                edge_info  : Dict[int, torch.tensor],
-                batch_data : Dict[str, torch.tensor]):
+                node_info  : Dict[int, torch.Tensor],
+                edge_info  : Dict[int, torch.Tensor],
+                batch_data : Dict[str, torch.Tensor]):
         idx_i = batch_data['idx_i']
         idx_j = batch_data['idx_j']
         _, dij, _ = find_distances(batch_data)
         rbf_ij = self.radial_fn(dij)
-        x = {}
-        y = {}
+        x = torch.jit.annotate(Dict[int, torch.Tensor], {})
+        y = torch.jit.annotate(Dict[int, torch.Tensor], {})
         for in_way in range(self.max_in_way + 1):
             if self.conv_mode == 'node_j':
                 x[in_way] = node_info[in_way][idx_j]
